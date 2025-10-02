@@ -1,12 +1,25 @@
-import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, Select } from '@shopify/polaris';
+import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, Select, Spinner } from '@shopify/polaris';
 import { useState } from 'react';
 import { 
   LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend 
 } from 'recharts';
+import { useAnalyticsData } from '@/hooks/useAnalyticsData';
 
 export default function Analytics() {
   const [dateFilter, setDateFilter] = useState('last7days');
+  const { 
+    totalCalls, 
+    resolutionRate, 
+    avgDuration, 
+    satisfaction, 
+    callVolumeData, 
+    sentimentData, 
+    topicsData, 
+    peakHoursData, 
+    salesImpact,
+    loading 
+  } = useAnalyticsData(dateFilter);
 
   const dateFilterOptions = [
     { label: 'Today', value: 'today' },
@@ -18,43 +31,21 @@ export default function Analytics() {
     { label: 'Custom Range', value: 'custom' },
   ];
 
-  // Call volume trend data
-  const callVolumeData = [
-    { date: 'Mon', calls: 45, resolved: 38, escalated: 7 },
-    { date: 'Tue', calls: 52, resolved: 47, escalated: 5 },
-    { date: 'Wed', calls: 61, resolved: 55, escalated: 6 },
-    { date: 'Thu', calls: 48, resolved: 43, escalated: 5 },
-    { date: 'Fri', calls: 68, resolved: 61, escalated: 7 },
-    { date: 'Sat', calls: 72, resolved: 65, escalated: 7 },
-    { date: 'Sun', calls: 58, resolved: 52, escalated: 6 },
-  ];
-
-  // Sentiment breakdown data
-  const sentimentData = [
-    { name: 'Positive', value: 68, color: '#50B83C' },
-    { name: 'Neutral', value: 24, color: '#FFC453' },
-    { name: 'Negative', value: 8, color: '#D82C0D' },
-  ];
-
-  // Top topics data
-  const topicsData = [
-    { topic: 'Product Info', count: 89 },
-    { topic: 'Order Status', count: 76 },
-    { topic: 'Shipping', count: 54 },
-    { topic: 'Returns', count: 42 },
-    { topic: 'Pricing', count: 38 },
-    { topic: 'Availability', count: 28 },
-  ];
-
-  // Peak hours data
-  const peakHoursData = [
-    { hour: '12AM', calls: 8 },
-    { hour: '4AM', calls: 3 },
-    { hour: '8AM', calls: 24 },
-    { hour: '12PM', calls: 45 },
-    { hour: '4PM', calls: 52 },
-    { hour: '8PM', calls: 38 },
-  ];
+  if (loading) {
+    return (
+      <Page title="Analytics">
+        <Layout>
+          <Layout.Section>
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                <Spinner size="large" />
+              </div>
+            </Card>
+          </Layout.Section>
+        </Layout>
+      </Page>
+    );
+  }
 
   return (
     <Page
@@ -91,7 +82,7 @@ export default function Analytics() {
                     Total Calls
                   </Text>
                   <Text as="p" variant="heading2xl">
-                    404
+                    {totalCalls}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
                     +18% vs previous period
@@ -108,7 +99,7 @@ export default function Analytics() {
                   </Text>
                   <InlineStack gap="200" blockAlign="center">
                     <Text as="p" variant="heading2xl">
-                      89%
+                      {resolutionRate}%
                     </Text>
                     <Badge tone="success">High</Badge>
                   </InlineStack>
@@ -126,7 +117,7 @@ export default function Analytics() {
                     Avg. Call Duration
                   </Text>
                   <Text as="p" variant="heading2xl">
-                    2:34
+                    {avgDuration}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
                     Minutes per conversation
@@ -142,7 +133,7 @@ export default function Analytics() {
                     Customer Satisfaction
                   </Text>
                   <Text as="p" variant="heading2xl">
-                    4.6/5.0
+                    {satisfaction}/5.0
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
                     Based on sentiment analysis
@@ -308,7 +299,7 @@ export default function Analytics() {
                   <BlockStack gap="300">
                     <div>
                       <Text as="p" variant="headingXl">
-                        $18,450
+                        ${salesImpact.revenue.toLocaleString()}
                       </Text>
                       <Text as="p" variant="bodySm" tone="subdued">
                         AI-assisted revenue this period
@@ -316,7 +307,7 @@ export default function Analytics() {
                     </div>
                     <div>
                       <Text as="p" variant="headingLg">
-                        156
+                        {salesImpact.orders}
                       </Text>
                       <Text as="p" variant="bodySm" tone="subdued">
                         Orders influenced by voice AI
@@ -324,7 +315,7 @@ export default function Analytics() {
                     </div>
                     <div>
                       <Text as="p" variant="headingLg">
-                        $118
+                        ${Math.floor(salesImpact.avgOrderValue)}
                       </Text>
                       <Text as="p" variant="bodySm" tone="subdued">
                         Average order value from AI conversations
@@ -333,7 +324,7 @@ export default function Analytics() {
                     <div>
                       <InlineStack gap="200" blockAlign="center">
                         <Text as="p" variant="headingLg">
-                          32%
+                          {salesImpact.conversionRate}%
                         </Text>
                         <Badge tone="success">+12%</Badge>
                       </InlineStack>

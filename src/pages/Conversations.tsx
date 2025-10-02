@@ -1,66 +1,20 @@
-import { Page, Layout, Card, DataTable, Badge, Button, InlineStack, Text, BlockStack } from '@shopify/polaris';
+import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, TextField, Select, Button, Spinner } from '@shopify/polaris';
 import { useState } from 'react';
-
-interface Conversation {
-  id: string;
-  customer: string;
-  date: string;
-  duration: string;
-  sentiment: string;
-  topic: string;
-  resolved: boolean;
-}
+import { useConversations } from '@/hooks/useConversations';
 
 export default function Conversations() {
-  const [conversations] = useState<Conversation[]>([
-    {
-      id: '1',
-      customer: 'Customer #4532',
-      date: '2025-10-02 14:23',
-      duration: '2:34',
-      sentiment: 'positive',
-      topic: 'Product inquiry',
-      resolved: true,
-    },
-    {
-      id: '2',
-      customer: 'Customer #4521',
-      date: '2025-10-02 14:10',
-      duration: '1:45',
-      sentiment: 'neutral',
-      topic: 'Order status',
-      resolved: true,
-    },
-    {
-      id: '3',
-      customer: 'Customer #4498',
-      date: '2025-10-02 13:55',
-      duration: '4:12',
-      sentiment: 'negative',
-      topic: 'Refund request',
-      resolved: false,
-    },
-    {
-      id: '4',
-      customer: 'Customer #4487',
-      date: '2025-10-02 13:42',
-      duration: '3:05',
-      sentiment: 'positive',
-      topic: 'Shipping question',
-      resolved: true,
-    },
-    {
-      id: '5',
-      customer: 'Customer #4476',
-      date: '2025-10-02 13:30',
-      duration: '2:18',
-      sentiment: 'positive',
-      topic: 'Product recommendation',
-      resolved: true,
-    },
-  ]);
-
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sentimentFilter, setSentimentFilter] = useState('all');
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
+
+  const { conversations, loading } = useConversations(searchQuery, sentimentFilter);
+
+  const sentimentFilterOptions = [
+    { label: 'All Sentiments', value: 'all' },
+    { label: 'Positive', value: 'positive' },
+    { label: 'Neutral', value: 'neutral' },
+    { label: 'Negative', value: 'negative' },
+  ];
 
   const getSentimentBadge = (sentiment: string) => {
     const tones: Record<string, 'success' | 'info' | 'critical'> = {
@@ -71,109 +25,176 @@ export default function Conversations() {
     return <Badge tone={tones[sentiment] || 'info'}>{sentiment}</Badge>;
   };
 
-  const rows = conversations.map((conv) => [
-    conv.customer,
-    conv.date,
-    conv.duration,
-    getSentimentBadge(conv.sentiment),
-    conv.topic,
-    <Badge tone={conv.resolved ? 'success' : 'warning'}>
-      {conv.resolved ? 'Resolved' : 'Pending'}
-    </Badge>,
-    <Button size="slim" onClick={() => setSelectedConversation(conv.id)}>
-      View Details
-    </Button>,
-  ]);
+  const selectedConvDetails = conversations.find(c => c.id === selectedConversation);
 
   return (
     <Page
-      title="Conversations"
-      subtitle="View and analyze all customer voice interactions"
-      primaryAction={{
-        content: 'Export Data',
-        onAction: () => console.log('Export conversations'),
-      }}
+      title="Voice Conversations"
+      subtitle="View and manage all customer interactions"
     >
       <Layout>
+        {/* Search and Filter */}
         <Layout.Section>
           <Card>
-            <DataTable
-              columnContentTypes={[
-                'text',
-                'text',
-                'text',
-                'text',
-                'text',
-                'text',
-                'text',
-              ]}
-              headings={[
-                'Customer',
-                'Date & Time',
-                'Duration',
-                'Sentiment',
-                'Topic',
-                'Status',
-                'Actions',
-              ]}
-              rows={rows}
-            />
+            <BlockStack gap="400">
+              <InlineStack gap="400" wrap={false}>
+                <div style={{ flex: 1 }}>
+                  <TextField
+                    label="Search conversations"
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    placeholder="Search by customer or topic..."
+                    autoComplete="off"
+                  />
+                </div>
+                <div style={{ width: '200px' }}>
+                  <Select
+                    label="Filter by sentiment"
+                    options={sentimentFilterOptions}
+                    value={sentimentFilter}
+                    onChange={setSentimentFilter}
+                  />
+                </div>
+              </InlineStack>
+            </BlockStack>
           </Card>
         </Layout.Section>
 
-        {selectedConversation && (
-          <Layout.Section>
+        {/* Conversations List */}
+        <Layout.Section>
+          {loading ? (
             <Card>
-              <BlockStack gap="400">
-                <InlineStack align="space-between">
-                  <Text as="h2" variant="headingLg">
-                    Conversation Details
-                  </Text>
-                  <Button onClick={() => setSelectedConversation(null)}>
-                    Close
-                  </Button>
-                </InlineStack>
-
-                <BlockStack gap="300">
-                  <Card background="bg-surface-secondary">
-                    <BlockStack gap="200">
-                      <Text as="h3" variant="headingMd">
-                        Transcript
-                      </Text>
-                      <Text as="p" variant="bodyMd">
-                        <strong>Customer:</strong> Hi, I'm interested in your wireless headphones. Do they come in black?
-                      </Text>
-                      <Text as="p" variant="bodyMd">
-                        <strong>AI Agent:</strong> Yes! Our wireless headphones are available in black, white, and navy blue. The black model is currently in stock with free shipping available.
-                      </Text>
-                      <Text as="p" variant="bodyMd">
-                        <strong>Customer:</strong> Perfect! What's the battery life?
-                      </Text>
-                      <Text as="p" variant="bodyMd">
-                        <strong>AI Agent:</strong> They offer up to 30 hours of playtime on a single charge, and come with a quick-charge feature that gives you 5 hours of playback with just a 10-minute charge.
-                      </Text>
-                    </BlockStack>
-                  </Card>
-
-                  <Card background="bg-surface-secondary">
-                    <BlockStack gap="200">
-                      <Text as="h3" variant="headingMd">
-                        Sentiment Analysis
-                      </Text>
-                      <Text as="p" variant="bodyMd">
-                        Overall Sentiment: <Badge tone="success">Positive</Badge>
-                      </Text>
-                      <Text as="p" variant="bodyMd" tone="subdued">
-                        The customer showed high interest and engagement throughout the conversation. No negative indicators detected.
-                      </Text>
-                    </BlockStack>
-                  </Card>
-                </BlockStack>
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                <Spinner size="large" />
+              </div>
+            </Card>
+          ) : conversations.length === 0 ? (
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" variant="bodyMd" alignment="center" tone="subdued">
+                  No conversations found
+                </Text>
               </BlockStack>
             </Card>
-          </Layout.Section>
-        )}
+          ) : (
+            <BlockStack gap="300">
+              {conversations.map((conversation) => (
+                <Card key={conversation.id}>
+                  <InlineStack align="space-between" blockAlign="start">
+                    <BlockStack gap="200">
+                      <InlineStack gap="300" blockAlign="center">
+                        <Text as="h3" variant="headingMd">
+                          {conversation.customer_identifier}
+                        </Text>
+                        {getSentimentBadge(conversation.sentiment)}
+                      </InlineStack>
+                      
+                      <InlineStack gap="400">
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          Topic: {conversation.topic}
+                        </Text>
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          Duration: {conversation.formattedDuration}
+                        </Text>
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          {conversation.formattedTime}
+                        </Text>
+                      </InlineStack>
+                    </BlockStack>
+                    
+                    <Button
+                      onClick={() => setSelectedConversation(
+                        selectedConversation === conversation.id ? null : conversation.id
+                      )}
+                    >
+                      {selectedConversation === conversation.id ? 'Hide' : 'View'} Transcript
+                    </Button>
+                  </InlineStack>
+
+                  {/* Expanded Transcript */}
+                  {selectedConversation === conversation.id && selectedConvDetails && (
+                    <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e1e3e5' }}>
+                      <BlockStack gap="300">
+                        <Text as="h4" variant="headingSm">
+                          Conversation Transcript
+                        </Text>
+                        {selectedConvDetails.transcript && 
+                        Array.isArray(selectedConvDetails.transcript) && 
+                        selectedConvDetails.transcript.length > 0 ? (
+                          <BlockStack gap="200">
+                            {selectedConvDetails.transcript.map((message: any, index: number) => (
+                              <div
+                                key={index}
+                                style={{
+                                  padding: '12px',
+                                  backgroundColor: message.role === 'customer' ? '#f6f6f7' : '#e3f2fd',
+                                  borderRadius: '8px',
+                                }}
+                              >
+                                <Text as="p" variant="bodySm" fontWeight="semibold">
+                                  {message.role === 'customer' ? 'Customer' : 'AI Assistant'}:
+                                </Text>
+                                <Text as="p" variant="bodyMd">
+                                  {message.content}
+                                </Text>
+                                {message.timestamp && (
+                                  <Text as="p" variant="bodySm" tone="subdued">
+                                    {new Date(message.timestamp).toLocaleTimeString()}
+                                  </Text>
+                                )}
+                              </div>
+                            ))}
+                          </BlockStack>
+                        ) : (
+                          <Text as="p" variant="bodySm" tone="subdued">
+                            No transcript available for this conversation.
+                          </Text>
+                        )}
+                      </BlockStack>
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </BlockStack>
+          )}
+        </Layout.Section>
+
+        {/* Summary Stats */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingLg">
+                Summary
+              </Text>
+              <InlineStack gap="400" wrap={true}>
+                <div>
+                  <Text as="p" variant="headingMd">{conversations.length}</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">Total Conversations</Text>
+                </div>
+                <div>
+                  <Text as="p" variant="headingMd">
+                    {conversations.filter(c => c.sentiment === 'positive').length}
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">Positive</Text>
+                </div>
+                <div>
+                  <Text as="p" variant="headingMd">
+                    {conversations.filter(c => c.sentiment === 'neutral').length}
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">Neutral</Text>
+                </div>
+                <div>
+                  <Text as="p" variant="headingMd">
+                    {conversations.filter(c => c.sentiment === 'negative').length}
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">Negative</Text>
+                </div>
+              </InlineStack>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
       </Layout>
+      <div style={{ height: '40px' }} />
     </Page>
   );
 }

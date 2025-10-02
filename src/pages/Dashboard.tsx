@@ -1,65 +1,9 @@
-import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, Button, Banner, Select } from '@shopify/polaris';
-import { useState, useEffect } from 'react';
+import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, Button, Banner, Select, Spinner } from '@shopify/polaris';
+import { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-
-interface DashboardStats {
-  totalCalls: number;
-  activeCalls: number;
-  avgSentiment: number;
-  resolvedIssues: number;
-  salesImpact: string;
-}
+import { useDashboardData } from '@/hooks/useDashboardData';
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<DashboardStats>({
-    totalCalls: 0,
-    activeCalls: 0,
-    avgSentiment: 0,
-    resolvedIssues: 0,
-    salesImpact: '$0',
-  });
-
-  const [recentCalls, setRecentCalls] = useState([
-    {
-      id: '1',
-      customer: 'Customer #4532',
-      topic: 'Product inquiry',
-      sentiment: 'positive',
-      duration: '2:34',
-      timestamp: '5 minutes ago',
-    },
-    {
-      id: '2',
-      customer: 'Customer #4521',
-      topic: 'Order status',
-      sentiment: 'neutral',
-      duration: '1:45',
-      timestamp: '12 minutes ago',
-    },
-    {
-      id: '3',
-      customer: 'Customer #4498',
-      topic: 'Refund request',
-      sentiment: 'negative',
-      duration: '4:12',
-      timestamp: '28 minutes ago',
-    },
-  ]);
-
-  useEffect(() => {
-    // Simulate loading stats - in production, fetch from Supabase
-    const timer = setTimeout(() => {
-      setStats({
-        totalCalls: 247,
-        activeCalls: 3,
-        avgSentiment: 4.2,
-        resolvedIssues: 189,
-        salesImpact: '$12,450',
-      });
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, []);
 
   const getSentimentBadge = (sentiment: string) => {
     const tones: Record<string, 'success' | 'info' | 'critical'> = {
@@ -73,16 +17,8 @@ export default function Dashboard() {
   const [agentStatus, setAgentStatus] = useState<'running' | 'paused'>('running');
   const [setupStatus, setSetupStatus] = useState<'complete' | 'warning' | 'critical'>('warning');
   const [dateFilter, setDateFilter] = useState('today');
-
-  // Chart data - calls over time
-  const [chartData, setChartData] = useState([
-    { time: '00:00', calls: 12, sentiment: 4.2 },
-    { time: '04:00', calls: 8, sentiment: 4.0 },
-    { time: '08:00', calls: 35, sentiment: 4.3 },
-    { time: '12:00', calls: 52, sentiment: 4.5 },
-    { time: '16:00', calls: 68, sentiment: 4.4 },
-    { time: '20:00', calls: 42, sentiment: 4.1 },
-  ]);
+  
+  const { stats, recentCalls, chartData, loading } = useDashboardData(dateFilter);
 
   const handleToggleAgent = () => {
     setAgentStatus(prev => prev === 'running' ? 'paused' : 'running');
@@ -121,6 +57,22 @@ export default function Dashboard() {
   };
 
   const statusBanner = getStatusBanner();
+
+  if (loading) {
+    return (
+      <Page title="Voice AI Dashboard">
+        <Layout>
+          <Layout.Section>
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                <Spinner size="large" />
+              </div>
+            </Card>
+          </Layout.Section>
+        </Layout>
+      </Page>
+    );
+  }
 
   return (
     <Page
