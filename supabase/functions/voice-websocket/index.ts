@@ -164,21 +164,17 @@ async function initializeDeepgram(sessionId: string, clientSocket: WebSocket): P
   try {
     console.log('[Deepgram] Initializing connection for session:', sessionId);
     
-    // Connect to Deepgram streaming API
+    // Connect to Deepgram streaming API with token in URL
     const deepgramWs = new WebSocket(
       'wss://api.deepgram.com/v1/listen?' + new URLSearchParams({
+        token: DEEPGRAM_API_KEY,
         encoding: 'linear16',
         sample_rate: '24000',
         channels: '1',
         interim_results: 'true',
         punctuate: 'true',
         endpointing: '300',
-      }),
-      {
-        headers: {
-          Authorization: `Token ${DEEPGRAM_API_KEY}`,
-        },
-      }
+      })
     );
 
     // Wait for connection to open
