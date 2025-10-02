@@ -1,13 +1,25 @@
-import { Page, Layout, Card, FormLayout, TextField, Select, Button, BlockStack, Text, InlineStack, Badge } from '@shopify/polaris';
-import { useState } from 'react';
+import { Page, Layout, Card, FormLayout, TextField, Select, Button, BlockStack, Text, InlineStack, Badge, Spinner } from '@shopify/polaris';
+import { useState, useEffect } from 'react';
+import { useAgentConfig } from '@/hooks/useAgentConfig';
+import { toast } from 'sonner';
 
 export default function AISetup() {
+  const { config, loading, updateConfig } = useAgentConfig();
+  
   const [voiceModel, setVoiceModel] = useState('alloy');
-  const [systemPrompt, setSystemPrompt] = useState(
-    "You are a helpful AI assistant for an e-commerce store. Help customers find products, check order status, and answer questions about shipping and returns. Be friendly, concise, and professional."
-  );
-  const [greeting, setGreeting] = useState("Hi! I'm your AI shopping assistant. How can I help you today?");
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [greeting, setGreeting] = useState('');
   const [maxDuration, setMaxDuration] = useState('5');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      setGreeting(config.greeting_message);
+      setSystemPrompt(config.system_prompt);
+      setVoiceModel(config.voice_model);
+      setMaxDuration(String(config.max_duration_minutes));
+    }
+  }, [config, loading]);
 
   const voiceOptions = [
     { label: 'Alloy (Neutral)', value: 'alloy' },
@@ -18,15 +30,38 @@ export default function AISetup() {
     { label: 'Shimmer (Soft Female)', value: 'shimmer' },
   ];
 
-  const handleSave = () => {
-    console.log('Saving AI configuration:', {
-      voiceModel,
-      systemPrompt,
-      greeting,
-      maxDuration,
+  const handleSave = async () => {
+    setSaving(true);
+    const result = await updateConfig({
+      greeting_message: greeting,
+      system_prompt: systemPrompt,
+      voice_model: voiceModel,
+      max_duration_minutes: parseInt(maxDuration) || 5,
     });
-    // In production: Save to Supabase via edge function
+    
+    setSaving(false);
+    if (result.success) {
+      toast.success('AI configuration saved successfully!');
+    } else {
+      toast.error('Failed to save configuration. Please try again.');
+    }
   };
+
+  if (loading) {
+    return (
+      <Page title="AI Agent Setup">
+        <Layout>
+          <Layout.Section>
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                <Spinner size="large" />
+              </div>
+            </Card>
+          </Layout.Section>
+        </Layout>
+      </Page>
+    );
+  }
 
   return (
     <Page
@@ -35,6 +70,7 @@ export default function AISetup() {
       primaryAction={{
         content: 'Save Configuration',
         onAction: handleSave,
+        loading: saving,
       }}
     >
       <Layout>

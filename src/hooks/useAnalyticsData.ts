@@ -72,10 +72,26 @@ export const useAnalyticsData = (dateFilter: string) => {
           if (c.sentiment) sentimentCounts[c.sentiment as keyof typeof sentimentCounts]++;
         });
         
+        const totalWithSentiment = sentimentCounts.positive + sentimentCounts.neutral + sentimentCounts.negative || 1;
         const sentimentData = [
-          { name: 'Positive', value: sentimentCounts.positive, color: '#50B83C' },
-          { name: 'Neutral', value: sentimentCounts.neutral, color: '#FFC453' },
-          { name: 'Negative', value: sentimentCounts.negative, color: '#D82C0D' },
+          { 
+            name: 'Positive', 
+            value: sentimentCounts.positive, 
+            percentage: Math.round((sentimentCounts.positive / totalWithSentiment) * 100),
+            color: '#50B83C' 
+          },
+          { 
+            name: 'Neutral', 
+            value: sentimentCounts.neutral,
+            percentage: Math.round((sentimentCounts.neutral / totalWithSentiment) * 100),
+            color: '#FFC453' 
+          },
+          { 
+            name: 'Negative', 
+            value: sentimentCounts.negative,
+            percentage: Math.round((sentimentCounts.negative / totalWithSentiment) * 100),
+            color: '#D82C0D' 
+          },
         ];
 
         // Topics breakdown

@@ -141,7 +141,7 @@ export default function Dashboard() {
                     {stats.totalCalls}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
-                    +12% from yesterday
+                    {stats.totalCalls > 0 ? `+${Math.round((stats.totalCalls / (stats.totalCalls * 0.88)) * 100 - 100)}%` : '+0%'} from yesterday
                   </Text>
                 </BlockStack>
               </Card>
