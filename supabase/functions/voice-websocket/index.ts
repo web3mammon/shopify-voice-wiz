@@ -470,27 +470,45 @@ async function generateSpeech(sessionId: string, text: string, socket: WebSocket
       throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
     }
 
-    // Stream audio chunks as they arrive
+    // Stream audio chunks with proper pacing
     const reader = response.body?.getReader();
     if (!reader) {
       throw new Error('No response body');
     }
 
     let totalBytes = 0;
+    let chunkCount = 0;
+    
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
       totalBytes += value.byteLength;
+      chunkCount++;
       
-      // Send each chunk immediately as it arrives
+      // Convert chunk to base64
       const audioBase64 = btoa(String.fromCharCode(...value));
+      
+      // Send chunk
       socket.send(JSON.stringify({
         type: 'audio.response',
         audio: audioBase64,
-        format: 'mp3'
+        format: 'mp3',
+        chunkIndex: chunkCount
       }));
+      
+      // Small delay to prevent overwhelming the client
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
+    
+    console.log(`[ElevenLabs] Streamed ${chunkCount} chunks (${totalBytes} bytes)`);
+    
+    // Send completion marker
+    socket.send(JSON.stringify({
+      type: 'audio.complete',
+      totalChunks: chunkCount,
+      totalBytes
+    }));
 
     console.log(`[ElevenLabs] Streamed ${totalBytes} bytes of audio`);
 

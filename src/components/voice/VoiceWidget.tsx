@@ -124,8 +124,13 @@ export default function VoiceWidget({
 
             case 'audio.response':
               if (playerRef.current && data.audio) {
+                console.log('[VoiceWidget] Received audio chunk:', data.chunkIndex);
                 await playerRef.current.addToQueue(data.audio);
               }
+              break;
+            
+            case 'audio.complete':
+              console.log('[VoiceWidget] Audio streaming complete:', data.totalChunks, 'chunks');
               break;
 
             case 'error':

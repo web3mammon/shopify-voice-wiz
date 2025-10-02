@@ -92,10 +92,11 @@ export class AudioPlayer {
   private queue: Blob[] = [];
   private isPlaying = false;
   private currentAudio: HTMLAudioElement | null = null;
+  private processingQueue = false;
 
   constructor() {
     this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    console.log('[AudioPlayer] Initialized');
+    console.log('[AudioPlayer] Initialized with sequential playback');
   }
 
   async addToQueue(base64Audio: string) {
@@ -110,9 +111,11 @@ export class AudioPlayer {
       const blob = new Blob([bytes], { type: 'audio/mpeg' });
       this.queue.push(blob);
       
-      console.log('[AudioPlayer] Added to queue, queue length:', this.queue.length);
+      console.log('[AudioPlayer] Added to queue. Total in queue:', this.queue.length, 'Playing:', this.isPlaying);
       
-      if (!this.isPlaying) {
+      // Only start playing if not already processing
+      if (!this.isPlaying && !this.processingQueue) {
+        this.processingQueue = true;
         await this.playNext();
       }
     } catch (error) {
@@ -123,8 +126,15 @@ export class AudioPlayer {
   private async playNext() {
     if (this.queue.length === 0) {
       this.isPlaying = false;
-      console.log('[AudioPlayer] Queue empty');
+      this.processingQueue = false;
+      console.log('[AudioPlayer] Queue empty, playback complete');
       return;
+    }
+
+    // Ensure previous audio is stopped
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio = null;
     }
 
     this.isPlaying = true;
@@ -134,24 +144,45 @@ export class AudioPlayer {
       const audioUrl = URL.createObjectURL(audioBlob);
       this.currentAudio = new Audio(audioUrl);
       
-      this.currentAudio.onended = () => {
-        URL.revokeObjectURL(audioUrl);
-        this.currentAudio = null;
-        this.playNext();
-      };
+      // Wait for audio to be ready
+      await new Promise<void>((resolve, reject) => {
+        this.currentAudio!.oncanplaythrough = () => resolve();
+        this.currentAudio!.onerror = (error) => reject(error);
+        this.currentAudio!.load();
+      });
 
-      this.currentAudio.onerror = (error) => {
-        console.error('[AudioPlayer] Playback error:', error);
-        URL.revokeObjectURL(audioUrl);
-        this.currentAudio = null;
-        this.playNext();
-      };
-
-      await this.currentAudio.play();
-      console.log('[AudioPlayer] Playing audio');
+      console.log('[AudioPlayer] Playing chunk. Remaining:', this.queue.length);
+      
+      // Play and wait for completion
+      await new Promise<void>((resolve) => {
+        this.currentAudio!.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          this.currentAudio = null;
+          resolve();
+        };
+        
+        this.currentAudio!.onerror = (error) => {
+          console.error('[AudioPlayer] Playback error:', error);
+          URL.revokeObjectURL(audioUrl);
+          this.currentAudio = null;
+          resolve(); // Continue to next chunk
+        };
+        
+        this.currentAudio!.play().catch((error) => {
+          console.error('[AudioPlayer] Play error:', error);
+          URL.revokeObjectURL(audioUrl);
+          this.currentAudio = null;
+          resolve(); // Continue to next chunk
+        });
+      });
+      
+      // Play next chunk
+      await this.playNext();
+      
     } catch (error) {
-      console.error('[AudioPlayer] Error playing audio:', error);
-      this.playNext();
+      console.error('[AudioPlayer] Error in playback:', error);
+      // Continue to next chunk even on error
+      await this.playNext();
     }
   }
 
@@ -162,6 +193,7 @@ export class AudioPlayer {
     }
     this.queue = [];
     this.isPlaying = false;
+    this.processingQueue = false;
     
     if (this.audioContext) {
       this.audioContext.close();
