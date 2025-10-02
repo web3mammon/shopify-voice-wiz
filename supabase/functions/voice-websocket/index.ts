@@ -453,7 +453,15 @@ async function generateSpeech(sessionId: string, text: string, socket: WebSocket
     );
 
     if (!response.ok) {
-      throw new Error(`ElevenLabs API error: ${response.status}`);
+      const errorText = await response.text();
+      console.error('[ElevenLabs] API Error Details:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText,
+        voiceId,
+        endpoint: `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`
+      });
+      throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
     }
 
     // Stream audio chunks as they arrive
