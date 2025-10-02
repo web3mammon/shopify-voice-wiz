@@ -470,7 +470,7 @@ async function generateSpeech(sessionId: string, text: string, socket: WebSocket
       throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
     }
 
-    // Stream audio chunks with proper pacing
+    // Stream audio chunks with buffering for complete MP3 frames
     const reader = response.body?.getReader();
     if (!reader) {
       throw new Error('No response body');
@@ -478,27 +478,48 @@ async function generateSpeech(sessionId: string, text: string, socket: WebSocket
 
     let totalBytes = 0;
     let chunkCount = 0;
+    let buffer: Uint8Array[] = [];
+    let bufferSize = 0;
+    const MIN_BUFFER_SIZE = 16384; // 16KB - ensures complete MP3 frames
     
     while (true) {
       const { done, value } = await reader.read();
+      
+      if (value) {
+        buffer.push(value);
+        bufferSize += value.byteLength;
+        totalBytes += value.byteLength;
+      }
+      
+      // Send when buffer is large enough or stream is done
+      if ((bufferSize >= MIN_BUFFER_SIZE || done) && buffer.length > 0) {
+        // Combine buffered chunks
+        const combinedBuffer = new Uint8Array(bufferSize);
+        let offset = 0;
+        for (const chunk of buffer) {
+          combinedBuffer.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        
+        chunkCount++;
+        
+        // Convert to base64
+        const audioBase64 = btoa(String.fromCharCode(...combinedBuffer));
+        
+        // Send combined chunk
+        socket.send(JSON.stringify({
+          type: 'audio.response',
+          audio: audioBase64,
+          format: 'mp3',
+          chunkIndex: chunkCount
+        }));
+        
+        // Reset buffer
+        buffer = [];
+        bufferSize = 0;
+      }
+      
       if (done) break;
-
-      totalBytes += value.byteLength;
-      chunkCount++;
-      
-      // Convert chunk to base64
-      const audioBase64 = btoa(String.fromCharCode(...value));
-      
-      // Send chunk
-      socket.send(JSON.stringify({
-        type: 'audio.response',
-        audio: audioBase64,
-        format: 'mp3',
-        chunkIndex: chunkCount
-      }));
-      
-      // Small delay to prevent overwhelming the client
-      await new Promise(resolve => setTimeout(resolve, 50));
     }
     
     console.log(`[ElevenLabs] Streamed ${chunkCount} chunks (${totalBytes} bytes)`);
