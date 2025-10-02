@@ -1,13 +1,60 @@
-import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, TextField, Select, Button, Spinner } from '@shopify/polaris';
+import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, TextField, Select, Button, Spinner, ButtonGroup } from '@shopify/polaris';
 import { useState } from 'react';
 import { useConversations } from '@/hooks/useConversations';
+import { useToast } from '@/hooks/use-toast';
 
 export default function Conversations() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sentimentFilter, setSentimentFilter] = useState('all');
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const { conversations, loading } = useConversations(searchQuery, sentimentFilter);
+
+  const exportToCSV = () => {
+    const headers = ['Customer', 'Topic', 'Sentiment', 'Duration (s)', 'Date'];
+    const rows = conversations.map(c => [
+      c.customer_identifier,
+      c.topic,
+      c.sentiment,
+      c.duration_seconds.toString(),
+      new Date(c.created_at).toLocaleString()
+    ]);
+    
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `conversations-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+    
+    toast({
+      title: 'Export complete',
+      description: `Exported ${conversations.length} conversations to CSV`,
+    });
+  };
+
+  const exportToJSON = () => {
+    const jsonContent = JSON.stringify(conversations, null, 2);
+    const blob = new Blob([jsonContent], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `conversations-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+    
+    toast({
+      title: 'Export complete',
+      description: `Exported ${conversations.length} conversations to JSON`,
+    });
+  };
 
   const sentimentFilterOptions = [
     { label: 'All Sentiments', value: 'all' },
@@ -37,7 +84,7 @@ export default function Conversations() {
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
-              <InlineStack gap="400" wrap={false}>
+              <InlineStack gap="400" wrap={false} blockAlign="end">
                 <div style={{ flex: 1 }}>
                   <TextField
                     label="Search conversations"
@@ -55,6 +102,14 @@ export default function Conversations() {
                     onChange={setSentimentFilter}
                   />
                 </div>
+                <ButtonGroup>
+                  <Button onClick={exportToCSV} disabled={conversations.length === 0}>
+                    Export CSV
+                  </Button>
+                  <Button onClick={exportToJSON} disabled={conversations.length === 0}>
+                    Export JSON
+                  </Button>
+                </ButtonGroup>
               </InlineStack>
             </BlockStack>
           </Card>
