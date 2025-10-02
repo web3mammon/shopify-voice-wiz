@@ -66,7 +66,7 @@ export default function VoiceWidget({
 
   const connectToVoiceWebSocket = async () => {
     try {
-      setConnectionStatus('Connecting...');
+      setConnectionStatus('Connecting you to our AI Agent...');
       setIsConnecting(true);
 
       const wsUrl = `wss://zdounxuewpdwrmqxtxby.supabase.co/functions/v1/voice-websocket?shop=${encodeURIComponent(shopId)}`;
@@ -96,10 +96,10 @@ export default function VoiceWidget({
                 timestamp: new Date().toISOString()
               }]);
               
-              // Show lead form if no customer info
-              if (!customerInfo) {
-                setShowLeadForm(true);
-              }
+              // Lead capture commented out - TODO: Add dynamically during conversation
+              // if (!customerInfo) {
+              //   setShowLeadForm(true);
+              // }
               
               // Start recording after connection established
               if (!recorderRef.current) {
@@ -352,8 +352,8 @@ export default function VoiceWidget({
               </button>
             </div>
 
-            {/* Lead Capture Form */}
-            {showLeadForm && (
+            {/* Lead Capture Form - TODO: Make dynamic during conversation */}
+            {/* {showLeadForm && (
               <div className="absolute inset-0 bg-white rounded-lg p-6 flex flex-col justify-center">
                 <h3 className="text-lg font-semibold mb-4">Welcome! Let's get started</h3>
                 <form onSubmit={handleCustomerInfoSubmit} className="space-y-4">
@@ -388,7 +388,7 @@ export default function VoiceWidget({
                   </button>
                 </form>
               </div>
-            )}
+            )} */}
 
             {/* Rating Form */}
             {showRating && (

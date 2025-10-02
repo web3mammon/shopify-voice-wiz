@@ -4,18 +4,33 @@ A Shopify app that provides an AI-powered voice assistant for e-commerce stores,
 
 ## Features
 
+### Core Capabilities
 - **Voice Conversations**: Real-time voice interaction using Deepgram STT and ElevenLabs TTS
 - **AI Intelligence**: Powered by OpenAI GPT for natural, context-aware responses
-- **Customizable Widget**: Configurable position, colors, and greeting messages
-- **Analytics Dashboard**: Track conversations, sentiment, and engagement metrics
-- **Shopify Integration**: Seamless OAuth integration with Shopify stores
+- **Shopify Order Lookup**: AI can look up customer orders using function calling
+- **Real-time Dashboard**: Live updates of conversations using Supabase Realtime
+- **Customer Ratings**: Collect feedback with star ratings after conversations
+- **Lead Capture**: Optional customer information collection (commented out for now)
+
+### Dashboard & Analytics
+- **Live Conversation Monitoring**: See conversations as they happen
+- **Sentiment Analysis**: Automatic sentiment detection for each conversation
+- **Topic Categorization**: AI-powered topic classification
+- **Conversation History**: Full transcript storage and search
+- **Performance Metrics**: Track conversation duration, ratings, and engagement
+
+### Customization
+- **Widget Configuration**: Configurable position, colors, and greeting messages
+- **AI Agent Setup**: Customize system prompts and voice models
+- **Multi-Shop Support**: Manage multiple Shopify stores from one dashboard
 
 ## Tech Stack
 
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS, shadcn-ui
-- **Backend**: Supabase (Database, Auth, Edge Functions)
-- **AI Services**: OpenAI GPT, Deepgram, ElevenLabs
+- **Backend**: Supabase (Database, Auth, Edge Functions, Realtime)
+- **AI Services**: OpenAI GPT (with function calling), Deepgram, ElevenLabs
 - **Platform**: Lovable Cloud
+- **Integration**: Shopify OAuth & Webhooks
 
 ## Development
 
@@ -111,15 +126,18 @@ npm run build
 The voice widget connects to: `wss://[PROJECT_ID].supabase.co/functions/v1/voice-websocket`
 
 If using your own Supabase project, update this URL in:
-- `src/components/voice/VoiceWidget.tsx` (line ~55)
+- `src/components/voice/VoiceWidget.tsx` (line 72)
 
 ### 6. Database Schema
 
 All database tables and RLS policies are defined in `supabase/migrations/`. Key tables:
-- `shops` - Shopify store credentials
-- `voice_conversations` - Conversation history
-- `agent_config` - AI agent configuration
+- `shops` - Shopify store credentials and access tokens
+- `voice_conversations` - Conversation history with transcripts, ratings, and sentiment
+- `customers` - Customer information and interaction history
+- `agent_config` - AI agent configuration (voice model, system prompt, etc.)
 - `widget_config` - Widget appearance settings
+- `shop_subscriptions` - Subscription and billing information
+- `subscription_plans` - Available pricing plans
 
 ### 7. Things to Keep in Mind
 
@@ -128,6 +146,7 @@ All database tables and RLS policies are defined in `supabase/migrations/`. Key 
 - **API Costs**: OpenAI, Deepgram, and ElevenLabs charge per usage
 - **Secrets Management**: Never commit API keys to git - use Supabase secrets
 - **CORS**: Already configured in edge functions for browser access
+- **Realtime**: Tables are configured for Supabase Realtime for live updates
 
 ## Project Structure
 
@@ -138,25 +157,63 @@ All database tables and RLS policies are defined in `supabase/migrations/`. Key 
 │   │   ├── layout/         # Layout components
 │   │   └── ui/             # shadcn-ui components
 │   ├── pages/              # Route pages
+│   │   ├── Dashboard.tsx   # Main analytics dashboard
+│   │   ├── Conversations.tsx # Conversation history
+│   │   ├── AISetup.tsx     # AI agent configuration
+│   │   └── Settings.tsx    # Widget settings
 │   ├── hooks/              # Custom React hooks
+│   │   ├── useDashboardData.ts # Real-time dashboard data
+│   │   ├── useConversations.ts # Conversation management
+│   │   └── useAgentConfig.ts   # Agent configuration
 │   ├── utils/              # Utility functions
+│   │   └── audioUtils.ts   # Audio recording/playback
 │   └── integrations/       # External integrations
 │       └── supabase/       # Supabase client
 ├── supabase/
 │   ├── functions/          # Edge functions
-│   │   ├── voice-websocket/    # Voice AI handler
-│   │   ├── shopify-oauth/      # Shopify auth
-│   │   └── shopify-webhook/    # Shopify webhooks
+│   │   ├── voice-websocket/    # Voice AI WebSocket handler
+│   │   │   ├── index.ts        # Main WebSocket logic
+│   │   │   └── customer-handler.ts # Customer info & rating handlers
+│   │   ├── shopify-oauth/      # Shopify authentication
+│   │   └── shopify-webhook/    # Shopify webhook processing
 │   └── migrations/         # Database migrations
 └── public/                 # Static assets
 ```
 
 ## Key Files
 
-- `src/components/voice/VoiceWidget.tsx` - Main voice interface
-- `src/utils/audioUtils.ts` - Audio recording/playback
-- `supabase/functions/voice-websocket/index.ts` - Voice processing backend
-- `src/pages/Dashboard.tsx` - Analytics dashboard
+- `src/components/voice/VoiceWidget.tsx` - Main voice interface widget
+- `src/utils/audioUtils.ts` - Audio recording/playback utilities
+- `supabase/functions/voice-websocket/index.ts` - Voice processing backend with GPT
+- `supabase/functions/voice-websocket/customer-handler.ts` - Customer & order handling
+- `src/pages/Dashboard.tsx` - Real-time analytics dashboard
+- `src/hooks/useDashboardData.ts` - Real-time data management
+
+## Architecture
+
+### Voice Conversation Flow
+1. Customer clicks voice widget on Shopify storefront
+2. Widget establishes WebSocket connection to `voice-websocket` edge function
+3. Browser streams microphone audio to backend
+4. Backend uses Deepgram for speech-to-text transcription
+5. Transcription sent to OpenAI GPT for intelligent response
+6. GPT can call functions (e.g., `lookup_order`) to fetch Shopify data
+7. Response converted to speech using ElevenLabs TTS
+8. Audio streamed back to customer in real-time
+9. Full transcript saved to database with sentiment analysis
+10. Dashboard updates in real-time via Supabase Realtime
+
+### Function Calling
+The AI can perform actions during conversations:
+- **lookup_order**: Search for customer orders by email or order number
+- Additional functions can be added in `voice-websocket/index.ts`
+
+### Real-time Updates
+Dashboard uses Supabase Realtime to instantly show:
+- New conversations starting
+- Live transcript updates
+- Conversation completions
+- Rating submissions
 
 ## Documentation
 
@@ -165,6 +222,7 @@ All database tables and RLS policies are defined in `supabase/migrations/`. Key 
 - [Deepgram API](https://developers.deepgram.com/)
 - [ElevenLabs API](https://docs.elevenlabs.io/)
 - [OpenAI API](https://platform.openai.com/docs/)
+- [Shopify API](https://shopify.dev/docs/api)
 
 ## Support
 
