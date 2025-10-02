@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { AudioRecorder, AudioPlayer, blobToBase64, base64ToBlob } from '@/utils/audioUtils';
-import { supabase } from '@/integrations/supabase/client';
+import { AudioRecorder, AudioPlayer } from '@/utils/audioUtils';
 
 interface VoiceWidgetProps {
   position?: 'bottom-left' | 'bottom-right';
@@ -60,12 +59,8 @@ export default function VoiceWidget({
     setConnectionStatus('connecting');
 
     try {
-      // Get Supabase project URL from environment
-      const projectUrl = import.meta.env.VITE_SUPABASE_URL;
-      const projectId = projectUrl?.split('//')[1]?.split('.')[0];
-      
-      // Connect to voice WebSocket
-      const wsUrl = `wss://${projectId}.supabase.co/functions/v1/voice-websocket?shop=${encodeURIComponent(shopId)}`;
+      // Connect directly to voice WebSocket (full URL required)
+      const wsUrl = `wss://zdounxuewpdwrmqxtxby.supabase.co/functions/v1/voice-websocket?shop=${encodeURIComponent(shopId)}`;
       
       console.log('Connecting to:', wsUrl);
       
@@ -76,15 +71,16 @@ export default function VoiceWidget({
         setConnectionStatus('connected');
         setIsConnecting(false);
         
-        // Start recording audio
+        // Start recording audio with PCM16 encoding
         try {
-          recorderRef.current = new AudioRecorder(async (audioBlob) => {
-            // Send audio chunk to server
-            const base64Audio = await blobToBase64(audioBlob);
-            wsRef.current?.send(JSON.stringify({
-              type: 'audio_chunk',
-              audio: base64Audio,
-            }));
+          recorderRef.current = new AudioRecorder((base64Audio) => {
+            // Send audio chunk to server (already base64 encoded PCM16)
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({
+                type: 'audio_chunk',
+                audio: base64Audio,
+              }));
+            }
           });
           
           await recorderRef.current.start();
@@ -120,9 +116,15 @@ export default function VoiceWidget({
             ]);
             break;
 
-          case 'audio_response':
-            // TODO: Receive and play TTS audio
-            console.log('Audio response:', data.text);
+          case 'audio_delta':
+            // Play audio chunk from OpenAI
+            if (playerRef.current && data.audio) {
+              playerRef.current.addToQueue(data.audio);
+            }
+            break;
+            
+          case 'audio_done':
+            console.log('Audio playback completed');
             break;
 
           case 'error':
