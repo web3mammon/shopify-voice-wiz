@@ -122,10 +122,11 @@ export default function VoiceWidget({
             case 'error':
               console.error('[VoiceWidget] Server error:', data.message);
               toast({
-                title: "Error",
-                description: data.message,
+                title: "Connection Error",
+                description: data.message || "Failed to initialize voice assistant",
                 variant: "destructive",
               });
+              setConnectionStatus('Error: ' + (data.message || 'Unknown error'));
               break;
 
             case 'session.ended':
@@ -140,14 +141,27 @@ export default function VoiceWidget({
 
       ws.onerror = (error) => {
         console.error('[VoiceWidget] WebSocket error:', error);
-        setConnectionStatus('Error');
+        setConnectionStatus('Connection Error');
+        toast({
+          title: "WebSocket Error",
+          description: "Failed to establish WebSocket connection",
+          variant: "destructive",
+        });
       };
 
-      ws.onclose = () => {
-        console.log('[VoiceWidget] WebSocket closed');
+      ws.onclose = (event) => {
+        console.log('[VoiceWidget] WebSocket closed', event.code, event.reason);
         setConnectionStatus('Disconnected');
         setIsConnecting(false);
         setIsRecording(false);
+        
+        if (event.code !== 1000) {
+          toast({
+            title: "Connection Closed",
+            description: event.reason || `Connection closed with code ${event.code}`,
+            variant: "destructive",
+          });
+        }
       };
 
     } catch (error) {
