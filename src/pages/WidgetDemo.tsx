@@ -1,185 +1,129 @@
-import { Page, Layout, Card, Text, BlockStack, Select, TextField, Button, InlineStack } from '@shopify/polaris';
-import { useState } from 'react';
 import VoiceWidget from '@/components/voice/VoiceWidget';
+import { Button } from '@/components/ui/button';
+import { ShoppingCart, Star } from 'lucide-react';
 
 export default function WidgetDemo() {
-  const [position, setPosition] = useState<'bottom-left' | 'bottom-right'>('bottom-right');
-  const [primaryColor, setPrimaryColor] = useState('#008060');
-  const [greetingMessage, setGreetingMessage] = useState("Hi! I'm your AI shopping assistant. How can I help you today?");
-  const [showWidget, setShowWidget] = useState(true);
-
-  const positionOptions = [
-    { label: 'Bottom Right', value: 'bottom-right' },
-    { label: 'Bottom Left', value: 'bottom-left' },
-  ];
-
-  const colorPresets = [
-    { label: 'Shopify Green', value: '#008060' },
-    { label: 'Blue', value: '#2563eb' },
-    { label: 'Purple', value: '#9333ea' },
-    { label: 'Red', value: '#dc2626' },
-    { label: 'Orange', value: '#ea580c' },
-  ];
-
-  const handleApplyChanges = () => {
-    // Remount widget with new props
-    setShowWidget(false);
-    setTimeout(() => setShowWidget(true), 100);
-  };
-
   return (
-    <Page
-      title="Voice Widget Demo"
-      subtitle="Test and customize your voice AI widget"
-    >
-      <Layout>
-        <Layout.Section variant="oneHalf">
-          <Card>
-            <BlockStack gap="400">
-              <Text as="h2" variant="headingLg">
-                Widget Customization
-              </Text>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="border-b">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+          <h1 className="text-2xl font-bold">DemoStore</h1>
+          <nav className="hidden md:flex gap-6">
+            <a href="#" className="text-muted-foreground hover:text-foreground">Home</a>
+            <a href="#" className="text-muted-foreground hover:text-foreground">Shop</a>
+            <a href="#" className="text-muted-foreground hover:text-foreground">About</a>
+            <a href="#" className="text-muted-foreground hover:text-foreground">Contact</a>
+          </nav>
+          <Button variant="outline" size="icon">
+            <ShoppingCart className="h-5 w-5" />
+          </Button>
+        </div>
+      </header>
 
-              <Select
-                label="Position"
-                options={positionOptions}
-                value={position}
-                onChange={(value) => setPosition(value as 'bottom-left' | 'bottom-right')}
-              />
+      {/* Hero Product Section */}
+      <main className="container mx-auto px-4 py-12">
+        <div className="grid md:grid-cols-2 gap-12 items-start">
+          {/* Product Image */}
+          <div className="aspect-square bg-muted rounded-lg flex items-center justify-center">
+            <div className="text-center text-muted-foreground">
+              <div className="text-6xl mb-4">📦</div>
+              <p>Product Image</p>
+            </div>
+          </div>
 
-              <Select
-                label="Primary Color"
-                options={colorPresets}
-                value={primaryColor}
-                onChange={setPrimaryColor}
-              />
+          {/* Product Info */}
+          <div className="space-y-6">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Star key={star} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                  ))}
+                </div>
+                <span className="text-sm text-muted-foreground">(128 reviews)</span>
+              </div>
+              <h1 className="text-4xl font-bold mb-2">Premium Product</h1>
+              <p className="text-3xl font-semibold text-primary">$99.99</p>
+            </div>
 
-              <TextField
-                label="Custom Color (Hex)"
-                value={primaryColor}
-                onChange={setPrimaryColor}
-                autoComplete="off"
-                prefix="#"
-              />
+            <p className="text-muted-foreground leading-relaxed">
+              Experience the perfect blend of quality and style with our premium product. 
+              Carefully crafted with attention to detail, this item is designed to exceed 
+              your expectations and become your new favorite.
+            </p>
 
-              <TextField
-                label="Greeting Message"
-                value={greetingMessage}
-                onChange={setGreetingMessage}
-                multiline={2}
-                autoComplete="off"
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Size</label>
+                <div className="flex gap-2">
+                  {['S', 'M', 'L', 'XL'].map((size) => (
+                    <Button key={size} variant="outline" className="w-12">
+                      {size}
+                    </Button>
+                  ))}
+                </div>
+              </div>
 
-              <Button variant="primary" onClick={handleApplyChanges}>
-                Apply Changes
-              </Button>
-            </BlockStack>
-          </Card>
-        </Layout.Section>
+              <div>
+                <label className="block text-sm font-medium mb-2">Quantity</label>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="icon">-</Button>
+                  <span className="w-12 text-center">1</span>
+                  <Button variant="outline" size="icon">+</Button>
+                </div>
+              </div>
+            </div>
 
-        <Layout.Section variant="oneHalf">
-          <Card>
-            <BlockStack gap="400">
-              <Text as="h2" variant="headingLg">
-                Widget Preview
-              </Text>
+            <div className="space-y-3">
+              <Button className="w-full" size="lg">Add to Cart</Button>
+              <Button className="w-full" variant="outline" size="lg">Buy Now</Button>
+            </div>
 
-              <Text as="p" variant="bodyMd" tone="subdued">
-                Click the voice button in the {position === 'bottom-right' ? 'bottom-right' : 'bottom-left'} corner to test the widget.
-              </Text>
+            <div className="border-t pt-6 space-y-2 text-sm">
+              <p className="flex justify-between">
+                <span className="text-muted-foreground">SKU:</span>
+                <span>DEMO-001</span>
+              </p>
+              <p className="flex justify-between">
+                <span className="text-muted-foreground">Category:</span>
+                <span>Premium</span>
+              </p>
+              <p className="flex justify-between">
+                <span className="text-muted-foreground">Availability:</span>
+                <span className="text-green-600">In Stock</span>
+              </p>
+            </div>
+          </div>
+        </div>
 
-              <BlockStack gap="200">
-                <Text as="h3" variant="headingMd">
-                  Features:
-                </Text>
-                <InlineStack gap="200">
-                  <Text as="p" variant="bodySm">✓ Voice input (microphone)</Text>
-                </InlineStack>
-                <InlineStack gap="200">
-                  <Text as="p" variant="bodySm">✓ Text input (typing)</Text>
-                </InlineStack>
-                <InlineStack gap="200">
-                  <Text as="p" variant="bodySm">✓ Real-time transcription</Text>
-                </InlineStack>
-                <InlineStack gap="200">
-                  <Text as="p" variant="bodySm">✓ AI voice responses</Text>
-                </InlineStack>
-                <InlineStack gap="200">
-                  <Text as="p" variant="bodySm">✓ Conversation history</Text>
-                </InlineStack>
-              </BlockStack>
-            </BlockStack>
-          </Card>
+        {/* Additional Info */}
+        <div className="mt-16 grid md:grid-cols-3 gap-8">
+          <div className="text-center p-6 border rounded-lg">
+            <div className="text-3xl mb-2">🚚</div>
+            <h3 className="font-semibold mb-2">Free Shipping</h3>
+            <p className="text-sm text-muted-foreground">On orders over $50</p>
+          </div>
+          <div className="text-center p-6 border rounded-lg">
+            <div className="text-3xl mb-2">↩️</div>
+            <h3 className="font-semibold mb-2">Easy Returns</h3>
+            <p className="text-sm text-muted-foreground">30-day return policy</p>
+          </div>
+          <div className="text-center p-6 border rounded-lg">
+            <div className="text-3xl mb-2">🔒</div>
+            <h3 className="font-semibold mb-2">Secure Payment</h3>
+            <p className="text-sm text-muted-foreground">100% secure transactions</p>
+          </div>
+        </div>
+      </main>
 
-          <Card>
-            <BlockStack gap="400">
-              <Text as="h3" variant="headingMd">
-                How It Works
-              </Text>
-              
-              <BlockStack gap="200">
-                <Text as="p" variant="bodyMd">
-                  <strong>1. Click the voice button</strong> to start a conversation
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  <strong>2. Speak or type</strong> your question
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  <strong>3. AI responds</strong> with helpful information
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  <strong>4. Continue the conversation</strong> naturally
-                </Text>
-              </BlockStack>
-            </BlockStack>
-          </Card>
-        </Layout.Section>
-
-        <Layout.Section>
-          <Card>
-            <BlockStack gap="400">
-              <Text as="h2" variant="headingLg">
-                Installation Instructions
-              </Text>
-
-              <Text as="p" variant="bodyMd">
-                To add this widget to your Shopify store:
-              </Text>
-
-              <BlockStack gap="200">
-                <Text as="p" variant="bodyMd">
-                  1. Install the app from the Shopify App Store
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  2. Configure your AI agent in the AI Setup page
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  3. Customize the widget appearance here
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  4. The widget will automatically appear on your store
-                </Text>
-              </BlockStack>
-
-              <Text as="p" variant="bodySm" tone="subdued">
-                Note: Make sure to complete the Store Integration to connect your product catalog and order data.
-              </Text>
-            </BlockStack>
-          </Card>
-        </Layout.Section>
-      </Layout>
-
-      {/* Render the actual widget for testing */}
-      {showWidget && (
-        <VoiceWidget
-          position={position}
-          primaryColor={primaryColor}
-          greetingMessage={greetingMessage}
-          shopId="demo-store.myshopify.com"
-        />
-      )}
-
-      <div style={{ height: '40px' }} />
-    </Page>
+      {/* Voice Widget */}
+      <VoiceWidget
+        position="bottom-right"
+        primaryColor="#008060"
+        greetingMessage="Hi! I'm your AI shopping assistant. How can I help you today?"
+        shopId="demo-store.myshopify.com"
+      />
+    </div>
   );
 }
