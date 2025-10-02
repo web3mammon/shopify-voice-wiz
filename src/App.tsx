@@ -6,6 +6,7 @@ import en from "@shopify/polaris/locales/en.json";
 
 import ShopifyLayout from "./components/layout/ShopifyLayout";
 import Dashboard from "./pages/Dashboard";
+import Shops from "./pages/Shops";
 import Conversations from "./pages/Conversations";
 import AISetup from "./pages/AISetup";
 import StoreIntegration from "./pages/StoreIntegration";
@@ -23,6 +24,7 @@ const App = () => (
         <ShopifyLayout>
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/shops" element={<Shops />} />
             <Route path="/conversations" element={<Conversations />} />
             <Route path="/ai-setup" element={<AISetup />} />
             <Route path="/store-integration" element={<StoreIntegration />} />

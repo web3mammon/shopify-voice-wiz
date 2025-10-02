@@ -6,6 +6,7 @@ import {
   ChartLineIcon,
   PhoneIcon,
   StoreIcon,
+  CodeIcon,
 } from '@shopify/polaris-icons';
 import { useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -36,6 +37,13 @@ export default function ShopifyLayout({ children }: ShopifyLayoutProps) {
             onClick: () => navigate('/'),
           },
           {
+            url: '/shops',
+            label: 'Shops & Clients',
+            icon: StoreIcon,
+            selected: location.pathname === '/shops',
+            onClick: () => navigate('/shops'),
+          },
+          {
             url: '/conversations',
             label: 'Conversations',
             icon: ChatIcon,
@@ -52,7 +60,7 @@ export default function ShopifyLayout({ children }: ShopifyLayoutProps) {
           {
             url: '/store-integration',
             label: 'Store Integration',
-            icon: StoreIcon,
+            icon: CodeIcon,
             selected: location.pathname === '/store-integration',
             onClick: () => navigate('/store-integration'),
           },
