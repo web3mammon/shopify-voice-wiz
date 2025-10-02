@@ -76,8 +76,18 @@ serve(async (req) => {
 
     sessions.set(sessionId, session);
 
-    // Initialize Deepgram connection
-    await initializeDeepgram(sessionId, socket);
+    // Initialize Deepgram connection and wait for it
+    const deepgramReady = await initializeDeepgram(sessionId, socket);
+    
+    if (!deepgramReady) {
+      console.error('[WebSocket] Failed to initialize Deepgram');
+      socket.send(JSON.stringify({
+        type: 'error',
+        message: 'Failed to initialize voice recognition. Please check your Deepgram API key.'
+      }));
+      socket.close();
+      return;
+    }
 
     socket.send(JSON.stringify({
       type: 'connection.established',
@@ -138,17 +148,22 @@ serve(async (req) => {
   return response;
 });
 
-async function initializeDeepgram(sessionId: string, clientSocket: WebSocket) {
+async function initializeDeepgram(sessionId: string, clientSocket: WebSocket): Promise<boolean> {
   const session = sessions.get(sessionId);
-  if (!session) return;
+  if (!session) {
+    console.error('[Deepgram] Session not found:', sessionId);
+    return false;
+  }
 
   const DEEPGRAM_API_KEY = Deno.env.get('DEEPGRAM_API_KEY');
   if (!DEEPGRAM_API_KEY) {
     console.error('[Deepgram] API key not configured');
-    return;
+    return false;
   }
 
   try {
+    console.log('[Deepgram] Initializing connection for session:', sessionId);
+    
     // Connect to Deepgram streaming API
     const deepgramWs = new WebSocket(
       'wss://api.deepgram.com/v1/listen?' + new URLSearchParams({
@@ -166,10 +181,26 @@ async function initializeDeepgram(sessionId: string, clientSocket: WebSocket) {
       }
     );
 
-    deepgramWs.onopen = () => {
-      console.log('[Deepgram] Connected for session:', sessionId);
-      session.deepgramConnection = deepgramWs;
-    };
+    // Wait for connection to open
+    const connectionPromise = new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        console.error('[Deepgram] Connection timeout');
+        resolve(false);
+      }, 10000);
+
+      deepgramWs.onopen = () => {
+        clearTimeout(timeout);
+        console.log('[Deepgram] Connected for session:', sessionId);
+        session.deepgramConnection = deepgramWs;
+        resolve(true);
+      };
+
+      deepgramWs.onerror = (error) => {
+        clearTimeout(timeout);
+        console.error('[Deepgram] Connection error:', error);
+        resolve(false);
+      };
+    });
 
     deepgramWs.onmessage = async (event) => {
       try {
@@ -208,16 +239,24 @@ async function initializeDeepgram(sessionId: string, clientSocket: WebSocket) {
       }
     };
 
-    deepgramWs.onerror = (error) => {
-      console.error('[Deepgram] WebSocket error:', error);
-    };
-
     deepgramWs.onclose = () => {
       console.log('[Deepgram] Connection closed for session:', sessionId);
     };
 
+    const connected = await connectionPromise;
+    
+    if (!connected) {
+      console.error('[Deepgram] Failed to establish connection');
+      if (deepgramWs.readyState === WebSocket.OPEN) {
+        deepgramWs.close();
+      }
+    }
+    
+    return connected;
+
   } catch (error) {
     console.error('[Deepgram] Connection error:', error);
+    return false;
   }
 }
 
