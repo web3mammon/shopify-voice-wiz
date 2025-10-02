@@ -58,6 +58,47 @@ export type Database = {
           },
         ]
       }
+      customers: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          last_interaction_at: string | null
+          name: string | null
+          phone: string | null
+          shop_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          last_interaction_at?: string | null
+          name?: string | null
+          phone?: string | null
+          shop_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          last_interaction_at?: string | null
+          name?: string | null
+          phone?: string | null
+          shop_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customers_shop_id_fkey"
+            columns: ["shop_id"]
+            isOneToOne: false
+            referencedRelation: "shops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       installations: {
         Row: {
           id: string
@@ -231,9 +272,12 @@ export type Database = {
       voice_conversations: {
         Row: {
           created_at: string | null
+          customer_id: string | null
           customer_identifier: string | null
           duration_seconds: number | null
+          feedback_text: string | null
           id: string
+          rating: number | null
           sentiment: string | null
           shop_id: string
           topic: string | null
@@ -242,9 +286,12 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          customer_id?: string | null
           customer_identifier?: string | null
           duration_seconds?: number | null
+          feedback_text?: string | null
           id?: string
+          rating?: number | null
           sentiment?: string | null
           shop_id: string
           topic?: string | null
@@ -253,9 +300,12 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          customer_id?: string | null
           customer_identifier?: string | null
           duration_seconds?: number | null
+          feedback_text?: string | null
           id?: string
+          rating?: number | null
           sentiment?: string | null
           shop_id?: string
           topic?: string | null
@@ -263,6 +313,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "voice_conversations_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "voice_conversations_shop_id_fkey"
             columns: ["shop_id"]

@@ -9,6 +9,11 @@ interface VoiceWidgetProps {
   shopId?: string;
 }
 
+interface CustomerInfo {
+  name: string;
+  email: string;
+}
+
 interface TranscriptMessage {
   role: 'customer' | 'assistant' | 'system';
   content: string;
@@ -26,6 +31,9 @@ export default function VoiceWidget({
   const [isConnecting, setIsConnecting] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
+  const [showLeadForm, setShowLeadForm] = useState(false);
+  const [showRating, setShowRating] = useState(false);
+  const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null);
   
   const { toast } = useToast();
   const wsRef = useRef<WebSocket | null>(null);
@@ -88,6 +96,11 @@ export default function VoiceWidget({
                 timestamp: new Date().toISOString()
               }]);
               
+              // Show lead form if no customer info
+              if (!customerInfo) {
+                setShowLeadForm(true);
+              }
+              
               // Start recording after connection established
               if (!recorderRef.current) {
                 recorderRef.current = new AudioRecorder((audioData) => {
@@ -143,9 +156,25 @@ export default function VoiceWidget({
               setConnectionStatus('Error: ' + (data.message || 'Unknown error'));
               break;
 
+            case 'customer.info.saved':
+              setShowLeadForm(false);
+              toast({
+                title: "Information Saved",
+                description: data.message,
+              });
+              break;
+
+            case 'rating.saved':
+              toast({
+                title: "Thank you!",
+                description: data.message,
+              });
+              setShowRating(false);
+              break;
+
             case 'session.ended':
               console.log('[VoiceWidget] Session ended by server');
-              handleToggleVoice();
+              setShowRating(true);
               break;
           }
         } catch (error) {
@@ -195,6 +224,12 @@ export default function VoiceWidget({
       setIsOpen(true);
       connectToVoiceWebSocket();
     } else {
+      // Show rating before closing if we have a conversation
+      if (transcript.length > 1 && !showRating) {
+        setShowRating(true);
+        return;
+      }
+
       // Close connection
       if (wsRef.current) {
         wsRef.current.send(JSON.stringify({ type: 'session.end' }));
@@ -207,7 +242,42 @@ export default function VoiceWidget({
       setIsRecording(false);
       setConnectionStatus('Disconnected');
       setTranscript([]);
+      setShowLeadForm(false);
+      setShowRating(false);
     }
+  };
+
+  const handleCustomerInfoSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const name = formData.get('name') as string;
+    const email = formData.get('email') as string;
+
+    if (!name || !email) return;
+
+    setCustomerInfo({ name, email });
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'customer.info',
+        name,
+        email
+      }));
+    }
+  };
+
+  const handleRatingSubmit = (rating: number, feedback?: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'conversation.rate',
+        rating,
+        feedback: feedback || null
+      }));
+    }
+    
+    setTimeout(() => {
+      handleToggleVoice();
+    }, 1500);
   };
 
   const handleSendMessage = (message: string) => {
@@ -281,6 +351,65 @@ export default function VoiceWidget({
                 ✕
               </button>
             </div>
+
+            {/* Lead Capture Form */}
+            {showLeadForm && (
+              <div className="absolute inset-0 bg-white rounded-lg p-6 flex flex-col justify-center">
+                <h3 className="text-lg font-semibold mb-4">Welcome! Let's get started</h3>
+                <form onSubmit={handleCustomerInfoSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Name</label>
+                    <input
+                      type="text"
+                      name="name"
+                      required
+                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2"
+                      style={{ borderColor: primaryColor }}
+                      placeholder="Enter your name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Email</label>
+                    <input
+                      type="email"
+                      name="email"
+                      required
+                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2"
+                      style={{ borderColor: primaryColor }}
+                      placeholder="your@email.com"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-2 text-white rounded-lg hover:opacity-90"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    Start Conversation
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* Rating Form */}
+            {showRating && (
+              <div className="absolute inset-0 bg-white rounded-lg p-6 flex flex-col justify-center">
+                <h3 className="text-lg font-semibold mb-4">How was your experience?</h3>
+                <div className="flex justify-center gap-2 mb-4">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => handleRatingSubmit(star)}
+                      className="text-3xl hover:scale-110 transition-transform"
+                    >
+                      ⭐
+                    </button>
+                  ))}
+                </div>
+                <p className="text-sm text-center text-gray-600">
+                  Click a star to rate your experience
+                </p>
+              </div>
+            )}
 
             {/* Transcript */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">

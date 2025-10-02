@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { handleCustomerInfo, handleConversationRating, lookupShopifyOrder } from "./customer-handler.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,12 +10,17 @@ const corsHeaders = {
 
 interface VoiceSession {
   shopDomain: string;
+  shopId: string;
   conversationId: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
   transcript: Array<{ role: string; content: string; timestamp: string }>;
   startTime: number;
   conversationHistory: Array<{ role: string; content: string }>;
   deepgramConnection: WebSocket | null;
   isProcessing: boolean;
+  accessToken: string | null;
 }
 
 const sessions = new Map<string, VoiceSession>();
@@ -48,7 +54,7 @@ serve(async (req) => {
 
   const { data: shop, error: shopError } = await supabaseClient
     .from('shops')
-    .select('id, is_active, shop_domain')
+    .select('id, is_active, shop_domain, access_token')
     .eq('shop_domain', shopDomain)
     .eq('is_active', true)
     .single();
@@ -66,12 +72,17 @@ serve(async (req) => {
     
     const session: VoiceSession = {
       shopDomain: shop.shop_domain,
+      shopId: shop.id,
       conversationId: null,
+      customerId: null,
+      customerName: null,
+      customerEmail: null,
       transcript: [],
       startTime: Date.now(),
       conversationHistory: [],
       deepgramConnection: null,
       isProcessing: false,
+      accessToken: shop.access_token,
     };
 
     sessions.set(sessionId, session);
@@ -115,6 +126,12 @@ serve(async (req) => {
         case 'text.message':
           await handleTextMessage(sessionId, data.message, socket, shop.id);
           break;
+        case 'customer.info':
+          await handleCustomerInfo(sessionId, data.name, data.email, socket, sessions);
+          break;
+        case 'conversation.rate':
+          await handleConversationRating(sessionId, data.rating, data.feedback, socket, sessions);
+          break;
         case 'session.end':
           await handleEndSession(sessionId, socket);
           break;
@@ -132,7 +149,7 @@ serve(async (req) => {
 
   socket.onclose = async () => {
     console.log(`[WebSocket] Connection closed - Session: ${sessionId}`);
-    await saveSessionToDatabase(sessionId, shop.id);
+    await saveSessionToDatabase(sessionId);
     
     const session = sessions.get(sessionId);
     if (session?.deepgramConnection) {
@@ -291,30 +308,54 @@ async function processWithGPT(sessionId: string, userInput: string, socket: WebS
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   );
 
-  // Get shop ID
-  const { data: shopData } = await supabaseClient
-    .from('shops')
-    .select('id')
-    .eq('shop_domain', session.shopDomain)
-    .single();
-
   // Get agent config for this shop
   const { data: agentConfig } = await supabaseClient
     .from('agent_config')
     .select('system_prompt, greeting_message')
-    .eq('shop_id', shopData?.id)
+    .eq('shop_id', session.shopId)
     .single();
 
   const systemPrompt = agentConfig?.system_prompt || buildSystemPrompt(session.shopDomain);
+  
+  // Add customer context if available
+  const customerContext = session.customerName 
+    ? `\nCustomer name: ${session.customerName}${session.customerEmail ? `, Email: ${session.customerEmail}` : ''}`
+    : '';
+  const fullSystemPrompt = systemPrompt + customerContext;
 
   try {
     const messages = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: fullSystemPrompt },
       ...session.conversationHistory.slice(-10),
       { role: 'user', content: userInput }
     ];
 
     console.log('[GPT] Sending streaming request...');
+
+    // Define function tools for Shopify order lookup
+    const tools = session.accessToken ? [
+      {
+        type: 'function',
+        function: {
+          name: 'lookup_order',
+          description: 'Look up order status and details from Shopify. Use this when customer asks about their order.',
+          parameters: {
+            type: 'object',
+            properties: {
+              order_number: {
+                type: 'string',
+                description: 'The order number or order ID'
+              },
+              email: {
+                type: 'string',
+                description: 'Customer email address'
+              }
+            },
+            required: ['order_number']
+          }
+        }
+      }
+    ] : [];
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -327,7 +368,9 @@ async function processWithGPT(sessionId: string, userInput: string, socket: WebS
         messages,
         max_tokens: 150,
         temperature: 0.7,
-        stream: true, // Enable streaming
+        stream: true,
+        tools: tools.length > 0 ? tools : undefined,
+        tool_choice: tools.length > 0 ? 'auto' : undefined
       })
     });
 
@@ -339,6 +382,7 @@ async function processWithGPT(sessionId: string, userInput: string, socket: WebS
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
     let fullResponse = '';
+    let toolCalls: any[] = [];
 
     if (reader) {
       while (true) {
@@ -355,14 +399,36 @@ async function processWithGPT(sessionId: string, userInput: string, socket: WebS
 
             try {
               const parsed = JSON.parse(data);
-              const content = parsed.choices[0]?.delta?.content;
-              if (content) {
-                fullResponse += content;
+              const delta = parsed.choices[0]?.delta;
+              
+              if (delta?.content) {
+                fullResponse += delta.content;
+              }
+              
+              if (delta?.tool_calls) {
+                toolCalls = delta.tool_calls;
               }
             } catch (e) {
               // Skip invalid JSON
             }
           }
+        }
+      }
+    }
+
+    // Handle function calls
+    if (toolCalls.length > 0) {
+      for (const toolCall of toolCalls) {
+        if (toolCall.function?.name === 'lookup_order') {
+          const args = JSON.parse(toolCall.function.arguments);
+          const orderInfo = await lookupShopifyOrder(
+            session.shopDomain,
+            session.accessToken!,
+            args.order_number,
+            args.email
+          );
+          
+          fullResponse = orderInfo || 'I was unable to find that order. Please check the order number and try again.';
         }
       }
     }
@@ -589,7 +655,7 @@ async function handleEndSession(sessionId: string, socket: WebSocket) {
   socket.close();
 }
 
-async function saveSessionToDatabase(sessionId: string, shopId: string) {
+async function saveSessionToDatabase(sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session || session.transcript.length === 0) return;
 
@@ -613,6 +679,7 @@ async function saveSessionToDatabase(sessionId: string, shopId: string) {
           duration_seconds: duration,
           sentiment,
           topic,
+          customer_id: session.customerId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', session.conversationId);
@@ -620,12 +687,13 @@ async function saveSessionToDatabase(sessionId: string, shopId: string) {
       await supabaseClient
         .from('voice_conversations')
         .insert({
-          shop_id: shopId,
-          customer_identifier: 'web-customer',
+          shop_id: session.shopId,
+          customer_identifier: session.customerEmail || session.customerName || 'web-customer',
           transcript: session.transcript,
           duration_seconds: duration,
           sentiment,
           topic,
+          customer_id: session.customerId,
         });
     }
 
