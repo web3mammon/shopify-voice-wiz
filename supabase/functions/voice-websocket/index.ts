@@ -431,7 +431,7 @@ async function generateSpeech(sessionId: string, text: string, socket: WebSocket
     .eq('shop_id', shopData?.id)
     .single();
 
-  const voiceId = agentConfig?.voice_model || '9BWtsMINqrJLrRacOk9x'; // Default: Aria
+  const voiceId = agentConfig?.voice_model || 'Kft8nAqXain1XJjJLVz7'; // Custom voice
 
   try {
     console.log('[ElevenLabs] Generating speech...');
