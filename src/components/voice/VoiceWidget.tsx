@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { AudioRecorder, AudioPlayer } from '@/utils/audioUtils';
+import { useToast } from '@/hooks/use-toast';
 
 interface VoiceWidgetProps {
   position?: 'bottom-left' | 'bottom-right';
@@ -24,8 +25,9 @@ export default function VoiceWidget({
   const [isRecording, setIsRecording] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [connectionStatus, setConnectionStatus] = useState('Disconnected');
   
+  const { toast } = useToast();
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
@@ -55,103 +57,108 @@ export default function VoiceWidget({
   }, []);
 
   const connectToVoiceWebSocket = async () => {
-    setIsConnecting(true);
-    setConnectionStatus('connecting');
-
     try {
-      // Connect directly to voice WebSocket (full URL required)
+      setConnectionStatus('Connecting...');
+      setIsConnecting(true);
+
       const wsUrl = `wss://zdounxuewpdwrmqxtxby.supabase.co/functions/v1/voice-websocket?shop=${encodeURIComponent(shopId)}`;
       
-      console.log('Connecting to:', wsUrl);
-      
-      wsRef.current = new WebSocket(wsUrl);
+      console.log('[VoiceWidget] Connecting to WebSocket:', wsUrl);
 
-      wsRef.current.onopen = async () => {
-        console.log('WebSocket connected');
-        setConnectionStatus('connected');
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('[VoiceWidget] WebSocket connected');
+        setConnectionStatus('Connected');
         setIsConnecting(false);
-        
-        // Start recording audio with PCM16 encoding
+      };
+
+      ws.onmessage = async (event) => {
         try {
-          recorderRef.current = new AudioRecorder((base64Audio) => {
-            // Send audio chunk to server (already base64 encoded PCM16)
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(JSON.stringify({
-                type: 'audio_chunk',
-                audio: base64Audio,
-              }));
-            }
-          });
-          
-          await recorderRef.current.start();
-          setIsRecording(true);
-        } catch (error) {
-          console.error('Error starting recorder:', error);
-        }
-      };
+          const data = JSON.parse(event.data);
+          console.log('[VoiceWidget] Received:', data.type);
 
-      wsRef.current.onmessage = async (event) => {
-        const data = JSON.parse(event.data);
-        console.log('Received:', data.type);
-
-        switch (data.type) {
-          case 'connection_established':
-            sessionIdRef.current = data.sessionId;
-            // Add greeting
-            setTranscript([{
-              role: 'system',
-              content: data.greeting || greetingMessage,
-              timestamp: new Date().toISOString(),
-            }]);
-            break;
-
-          case 'transcript_update':
-            setTranscript(prev => [
-              ...prev,
-              {
-                role: data.role === 'customer' ? 'customer' : 'assistant',
-                content: data.text,
-                timestamp: new Date().toISOString(),
+          switch (data.type) {
+            case 'connection.established':
+              sessionIdRef.current = data.sessionId;
+              setTranscript(prev => [...prev, {
+                role: 'system',
+                content: greetingMessage,
+                timestamp: new Date().toISOString()
+              }]);
+              
+              // Start recording after connection established
+              if (!recorderRef.current) {
+                recorderRef.current = new AudioRecorder((audioData) => {
+                  if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                      type: 'audio.chunk',
+                      audio: audioData
+                    }));
+                  }
+                });
+                await recorderRef.current.start();
+                setIsRecording(true);
               }
-            ]);
-            break;
+              break;
 
-          case 'audio_delta':
-            // Play audio chunk from OpenAI
-            if (playerRef.current && data.audio) {
-              playerRef.current.addToQueue(data.audio);
-            }
-            break;
-            
-          case 'audio_done':
-            console.log('Audio playback completed');
-            break;
+            case 'transcript.update':
+              if (data.isFinal) {
+                setTranscript(prev => [...prev, {
+                  role: 'customer',
+                  content: data.text,
+                  timestamp: new Date().toISOString()
+                }]);
+              }
+              break;
 
-          case 'error':
-            console.error('Server error:', data.error);
-            break;
+            case 'audio.response':
+              if (playerRef.current && data.audio) {
+                await playerRef.current.addToQueue(data.audio);
+              }
+              break;
+
+            case 'error':
+              console.error('[VoiceWidget] Server error:', data.message);
+              toast({
+                title: "Error",
+                description: data.message,
+                variant: "destructive",
+              });
+              break;
+
+            case 'session.ended':
+              console.log('[VoiceWidget] Session ended by server');
+              handleToggleVoice();
+              break;
+          }
+        } catch (error) {
+          console.error('[VoiceWidget] Error processing message:', error);
         }
       };
 
-      wsRef.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setConnectionStatus('disconnected');
+      ws.onerror = (error) => {
+        console.error('[VoiceWidget] WebSocket error:', error);
+        setConnectionStatus('Error');
+      };
+
+      ws.onclose = () => {
+        console.log('[VoiceWidget] WebSocket closed');
+        setConnectionStatus('Disconnected');
         setIsConnecting(false);
-      };
-
-      wsRef.current.onclose = () => {
-        console.log('WebSocket closed');
-        setConnectionStatus('disconnected');
-        if (recorderRef.current) {
-          recorderRef.current.stop();
-        }
         setIsRecording(false);
       };
 
     } catch (error) {
-      console.error('Failed to connect:', error);
+      console.error('[VoiceWidget] Error connecting:', error);
+      toast({
+        title: "Connection Failed",
+        description: "Could not connect to voice assistant. Please try again.",
+        variant: "destructive",
+      });
       setIsConnecting(false);
-      setConnectionStatus('disconnected');
+      setConnectionStatus('Disconnected');
     }
   };
 
@@ -162,7 +169,7 @@ export default function VoiceWidget({
     } else {
       // Close connection
       if (wsRef.current) {
-        wsRef.current.send(JSON.stringify({ type: 'end_session' }));
+        wsRef.current.send(JSON.stringify({ type: 'session.end' }));
         wsRef.current.close();
       }
       if (recorderRef.current) {
@@ -170,24 +177,31 @@ export default function VoiceWidget({
       }
       setIsOpen(false);
       setIsRecording(false);
-      setConnectionStatus('disconnected');
+      setConnectionStatus('Disconnected');
       setTranscript([]);
     }
   };
 
   const handleSendMessage = (message: string) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'text_message',
-        text: message,
-      }));
-      
-      // Add to local transcript immediately
-      setTranscript((prev) => [
-        ...prev, 
-        { role: 'customer', content: message, timestamp: new Date().toISOString() }
-      ]);
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      toast({
+        title: "Not Connected",
+        description: "Please connect to the voice assistant first.",
+        variant: "destructive",
+      });
+      return;
     }
+
+    setTranscript(prev => [...prev, {
+      role: 'customer',
+      content: message,
+      timestamp: new Date().toISOString()
+    }]);
+
+    wsRef.current.send(JSON.stringify({ 
+      type: 'text.message',
+      message 
+    }));
   };
 
   return (
@@ -230,11 +244,7 @@ export default function VoiceWidget({
             >
               <div>
                 <h3 className="font-semibold text-lg">Voice AI Assistant</h3>
-                <p className="text-sm text-gray-600">
-                  {connectionStatus === 'connected' && '🟢 Connected'}
-                  {connectionStatus === 'connecting' && '🟡 Connecting...'}
-                  {connectionStatus === 'disconnected' && '🔴 Disconnected'}
-                </p>
+                <p className="text-sm text-gray-600">{connectionStatus}</p>
               </div>
               <button
                 onClick={handleToggleVoice}

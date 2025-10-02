@@ -1,33 +1,26 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 interface VoiceSession {
-  sessionId: string;
-  shopId: string;
   shopDomain: string;
   conversationId: string | null;
-  conversationHistory: Array<{ role: string; content: string }>;
   transcript: Array<{ role: string; content: string; timestamp: string }>;
-  startTime: Date;
-  customerIdentifier?: string;
-  openAIWebSocket: WebSocket | null;
-  isOpenAIConnected: boolean;
-  audioBuffer: string[];
-  systemPrompt: string;
+  startTime: number;
+  conversationHistory: Array<{ role: string; content: string }>;
+  deepgramConnection: WebSocket | null;
+  isProcessing: boolean;
 }
 
-// In-memory session storage
 const sessions = new Map<string, VoiceSession>();
 
 serve(async (req) => {
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
+  if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
@@ -35,530 +28,519 @@ serve(async (req) => {
   const upgradeHeader = headers.get("upgrade") || "";
 
   if (upgradeHeader.toLowerCase() !== "websocket") {
-    return new Response("Expected WebSocket connection", { 
-      status: 400,
-      headers: corsHeaders 
-    });
+    return new Response("Expected WebSocket connection", { status: 400 });
   }
 
-  // Extract shop parameter
   const url = new URL(req.url);
-  const shopDomain = url.searchParams.get('shop') || 'demo-store.myshopify.com';
+  const shopDomain = url.searchParams.get('shop');
 
-  const supabase = createClient(
+  if (!shopDomain) {
+    return new Response("Shop domain required", { status: 400 });
+  }
+
+  console.log(`[WebSocket] Connection request from shop: ${shopDomain}`);
+
+  // Verify shop exists and is active
+  const supabaseClient = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   );
 
-  // Verify shop exists
-  const { data: shop } = await supabase
+  const { data: shop, error: shopError } = await supabaseClient
     .from('shops')
-    .select('id, is_active')
+    .select('id, is_active, shop_domain')
     .eq('shop_domain', shopDomain)
-    .maybeSingle();
+    .eq('is_active', true)
+    .single();
 
-  if (!shop || !shop.is_active) {
-    return new Response("Invalid or inactive shop", { 
-      status: 403,
-      headers: corsHeaders 
-    });
+  if (shopError || !shop) {
+    console.error('[WebSocket] Shop not found or inactive:', shopDomain);
+    return new Response("Shop not found or inactive", { status: 404 });
   }
 
-  // Get agent config
-  const { data: agentConfig } = await supabase
-    .from('agent_config')
-    .select('*')
-    .eq('shop_id', shop.id)
-    .maybeSingle();
-
   const { socket, response } = Deno.upgradeWebSocket(req);
-  
-  let sessionId: string | null = null;
-  let voiceSession: VoiceSession | null = null;
+  const sessionId = crypto.randomUUID();
 
   socket.onopen = async () => {
-    console.log("WebSocket connection opened for shop:", shopDomain);
-    sessionId = crypto.randomUUID();
+    console.log(`[WebSocket] Connected - Session: ${sessionId}`);
     
-    // Build system prompt with Shopify context
-    const systemPrompt = buildSystemPrompt(agentConfig, shopDomain);
-    
-    voiceSession = {
-      sessionId,
-      shopId: shop.id,
-      shopDomain,
+    const session: VoiceSession = {
+      shopDomain: shop.shop_domain,
       conversationId: null,
-      conversationHistory: [],
       transcript: [],
-      startTime: new Date(),
-      openAIWebSocket: null,
-      isOpenAIConnected: false,
-      audioBuffer: [],
-      systemPrompt,
+      startTime: Date.now(),
+      conversationHistory: [],
+      deepgramConnection: null,
+      isProcessing: false,
     };
-    
-    sessions.set(sessionId, voiceSession);
-    
-    // Connect to OpenAI Realtime API
-    await initializeOpenAIConnection(socket, voiceSession, agentConfig);
-    
+
+    sessions.set(sessionId, session);
+
+    // Initialize Deepgram connection
+    await initializeDeepgram(sessionId, socket);
+
     socket.send(JSON.stringify({
-      type: "connection_established",
+      type: 'connection.established',
       sessionId,
-      greeting: agentConfig?.greeting_message || "Hi! I'm your AI shopping assistant. How can I help you today?",
+      message: 'Voice assistant ready'
     }));
-    
-    console.log(`Session created: ${sessionId}`);
+
+    console.log(`[WebSocket] Session initialized: ${sessionId}`);
   };
 
   socket.onmessage = async (event) => {
     try {
-      const data = JSON.parse(event.data);
-      console.log("Received message:", data.type);
+      const session = sessions.get(sessionId);
+      if (!session) {
+        console.error('[WebSocket] Session not found:', sessionId);
+        return;
+      }
 
+      const data = JSON.parse(event.data);
+      
       switch (data.type) {
-        case "audio_chunk":
-          await handleAudioChunk(socket, data, voiceSession, supabase);
+        case 'audio.chunk':
+          await handleAudioChunk(sessionId, data.audio, socket);
           break;
-          
-        case "text_message":
-          await handleTextMessage(socket, data, voiceSession, supabase);
+        case 'text.message':
+          await handleTextMessage(sessionId, data.message, socket, shop.id);
           break;
-          
-        case "end_session":
-          await handleEndSession(socket, voiceSession, supabase);
+        case 'session.end':
+          await handleEndSession(sessionId, socket);
           break;
-          
         default:
-          console.warn("Unknown message type:", data.type);
+          console.warn('[WebSocket] Unknown message type:', data.type);
       }
     } catch (error) {
-      console.error("Error processing message:", error);
+      console.error('[WebSocket] Message handling error:', error);
       socket.send(JSON.stringify({
-        type: "error",
-        error: error instanceof Error ? error.message : 'Unknown error',
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Unknown error'
       }));
     }
   };
 
-  socket.onerror = (error) => {
-    console.error("WebSocket error:", error);
+  socket.onclose = async () => {
+    console.log(`[WebSocket] Connection closed - Session: ${sessionId}`);
+    await saveSessionToDatabase(sessionId, shop.id);
+    
+    const session = sessions.get(sessionId);
+    if (session?.deepgramConnection) {
+      session.deepgramConnection.close();
+    }
+    sessions.delete(sessionId);
   };
 
-  socket.onclose = async () => {
-    console.log("WebSocket connection closed");
-    if (sessionId && voiceSession) {
-      await saveSessionToDatabase(voiceSession, supabase);
-      sessions.delete(sessionId);
-    }
+  socket.onerror = (error) => {
+    console.error('[WebSocket] Error:', error);
   };
 
   return response;
 });
 
-// Initialize OpenAI Realtime API connection
-async function initializeOpenAIConnection(
-  clientSocket: WebSocket,
-  session: VoiceSession,
-  agentConfig: any
-) {
-  const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || 'sk-dummy-key-replace-later';
-  const OPENAI_WS_URL = 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01';
-  
-  console.log('Connecting to OpenAI Realtime API...');
-  
+async function initializeDeepgram(sessionId: string, clientSocket: WebSocket) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  const DEEPGRAM_API_KEY = Deno.env.get('DEEPGRAM_API_KEY');
+  if (!DEEPGRAM_API_KEY) {
+    console.error('[Deepgram] API key not configured');
+    return;
+  }
+
   try {
-    const openAISocket = new WebSocket(OPENAI_WS_URL, {
+    // Connect to Deepgram streaming API
+    const deepgramWs = new WebSocket(
+      'wss://api.deepgram.com/v1/listen?' + new URLSearchParams({
+        encoding: 'linear16',
+        sample_rate: '24000',
+        channels: '1',
+        interim_results: 'true',
+        punctuate: 'true',
+        endpointing: '300',
+      }),
+      {
+        headers: {
+          Authorization: `Token ${DEEPGRAM_API_KEY}`,
+        },
+      }
+    );
+
+    deepgramWs.onopen = () => {
+      console.log('[Deepgram] Connected for session:', sessionId);
+      session.deepgramConnection = deepgramWs;
+    };
+
+    deepgramWs.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'Results') {
+          const transcript = data.channel?.alternatives?.[0]?.transcript;
+          const isFinal = data.is_final;
+          
+          if (transcript && transcript.trim()) {
+            console.log(`[Deepgram] ${isFinal ? 'Final' : 'Interim'}: ${transcript}`);
+            
+            clientSocket.send(JSON.stringify({
+              type: 'transcript.update',
+              text: transcript,
+              isFinal
+            }));
+
+            // Process final transcripts
+            if (isFinal && !session.isProcessing) {
+              session.isProcessing = true;
+              
+              session.transcript.push({
+                role: 'customer',
+                content: transcript,
+                timestamp: new Date().toISOString()
+              });
+
+              // Get AI response
+              await processWithGPT(sessionId, transcript, clientSocket);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[Deepgram] Message parsing error:', error);
+      }
+    };
+
+    deepgramWs.onerror = (error) => {
+      console.error('[Deepgram] WebSocket error:', error);
+    };
+
+    deepgramWs.onclose = () => {
+      console.log('[Deepgram] Connection closed for session:', sessionId);
+    };
+
+  } catch (error) {
+    console.error('[Deepgram] Connection error:', error);
+  }
+}
+
+async function handleAudioChunk(sessionId: string, audioBase64: string, socket: WebSocket) {
+  const session = sessions.get(sessionId);
+  if (!session || !session.deepgramConnection) {
+    console.error('[Audio] Session or Deepgram connection not found');
+    return;
+  }
+
+  try {
+    // Decode base64 audio and send to Deepgram
+    const audioData = Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0));
+    
+    if (session.deepgramConnection.readyState === WebSocket.OPEN) {
+      session.deepgramConnection.send(audioData);
+    }
+  } catch (error) {
+    console.error('[Audio] Error processing chunk:', error);
+  }
+}
+
+async function processWithGPT(sessionId: string, userInput: string, socket: WebSocket) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+  if (!OPENAI_API_KEY) {
+    console.error('[GPT] API key not configured');
+    session.isProcessing = false;
+    return;
+  }
+
+  const supabaseClient = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
+
+  // Get shop ID
+  const { data: shopData } = await supabaseClient
+    .from('shops')
+    .select('id')
+    .eq('shop_domain', session.shopDomain)
+    .single();
+
+  // Get agent config for this shop
+  const { data: agentConfig } = await supabaseClient
+    .from('agent_config')
+    .select('system_prompt, greeting_message')
+    .eq('shop_id', shopData?.id)
+    .single();
+
+  const systemPrompt = agentConfig?.system_prompt || buildSystemPrompt(session.shopDomain);
+
+  try {
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...session.conversationHistory.slice(-10),
+      { role: 'user', content: userInput }
+    ];
+
+    console.log('[GPT] Sending request...');
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'OpenAI-Beta': 'realtime=v1',
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        model: 'gpt-4',
+        messages,
+        max_tokens: 150,
+        temperature: 0.7,
+      })
     });
-    
-    session.openAIWebSocket = openAISocket;
-    
-    openAISocket.onopen = () => {
-      console.log('Connected to OpenAI Realtime API');
-      session.isOpenAIConnected = true;
-      
-      // Send session configuration
-      const sessionConfig = {
-        type: 'session.update',
-        session: {
-          modalities: ['text', 'audio'],
-          instructions: session.systemPrompt,
-          voice: agentConfig?.voice_model || 'alloy',
-          input_audio_format: 'pcm16',
-          output_audio_format: 'pcm16',
-          input_audio_transcription: {
-            model: 'whisper-1'
-          },
-          turn_detection: {
-            type: 'server_vad',
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 1000,
-          },
-          temperature: 0.8,
-          max_response_output_tokens: 4096,
-        },
-      };
-      
-      console.log('Sending session configuration to OpenAI');
-      openAISocket.send(JSON.stringify(sessionConfig));
-    };
-    
-    openAISocket.onmessage = async (event) => {
-      const data = JSON.parse(event.data);
-      await handleOpenAIMessage(clientSocket, data, session);
-    };
-    
-    openAISocket.onerror = (error) => {
-      console.error('OpenAI WebSocket error:', error);
-      session.isOpenAIConnected = false;
-      clientSocket.send(JSON.stringify({
-        type: 'error',
-        error: 'OpenAI connection error',
-      }));
-    };
-    
-    openAISocket.onclose = () => {
-      console.log('OpenAI WebSocket closed');
-      session.isOpenAIConnected = false;
-    };
-    
+
+    if (!response.ok) {
+      throw new Error(`GPT API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const aiResponse = data.choices[0]?.message?.content || 'I apologize, I didn\'t catch that.';
+
+    console.log('[GPT] Response:', aiResponse);
+
+    // Update conversation history
+    session.conversationHistory.push(
+      { role: 'user', content: userInput },
+      { role: 'assistant', content: aiResponse }
+    );
+
+    session.transcript.push({
+      role: 'assistant',
+      content: aiResponse,
+      timestamp: new Date().toISOString()
+    });
+
+    // Generate audio with ElevenLabs
+    await generateSpeech(sessionId, aiResponse, socket);
+
   } catch (error) {
-    console.error('Failed to connect to OpenAI:', error);
-    throw error;
-  }
-}
-
-// Handle messages from OpenAI
-async function handleOpenAIMessage(
-  clientSocket: WebSocket,
-  data: any,
-  session: VoiceSession
-) {
-  console.log('OpenAI message:', data.type);
-  
-  switch (data.type) {
-    case 'session.created':
-      console.log('OpenAI session created');
-      break;
-      
-    case 'session.updated':
-      console.log('OpenAI session updated');
-      break;
-      
-    case 'response.audio.delta':
-      // Forward audio chunks to client
-      clientSocket.send(JSON.stringify({
-        type: 'audio_delta',
-        audio: data.delta,
-      }));
-      break;
-      
-    case 'response.audio.done':
-      clientSocket.send(JSON.stringify({
-        type: 'audio_done',
-      }));
-      break;
-      
-    case 'response.audio_transcript.delta':
-      // Accumulate assistant transcript
-      break;
-      
-    case 'response.audio_transcript.done':
-      const assistantText = data.transcript;
-      console.log('Assistant transcript:', assistantText);
-      
-      session.transcript.push({
-        role: 'assistant',
-        content: assistantText,
-        timestamp: new Date().toISOString(),
-      });
-      
-      session.conversationHistory.push({
-        role: 'assistant',
-        content: assistantText,
-      });
-      
-      clientSocket.send(JSON.stringify({
-        type: 'transcript_update',
-        role: 'assistant',
-        text: assistantText,
-      }));
-      break;
-      
-    case 'conversation.item.input_audio_transcription.completed':
-      const userText = data.transcript;
-      console.log('User transcript:', userText);
-      
-      session.transcript.push({
-        role: 'customer',
-        content: userText,
-        timestamp: new Date().toISOString(),
-      });
-      
-      session.conversationHistory.push({
-        role: 'user',
-        content: userText,
-      });
-      
-      clientSocket.send(JSON.stringify({
-        type: 'transcript_update',
-        role: 'customer',
-        text: userText,
-      }));
-      break;
-      
-    case 'response.done':
-      console.log('Response completed');
-      break;
-      
-    case 'error':
-      console.error('OpenAI error:', data.error);
-      clientSocket.send(JSON.stringify({
-        type: 'error',
-        error: data.error.message || 'OpenAI API error',
-      }));
-      break;
-      
-    default:
-      console.log('Unhandled OpenAI message type:', data.type);
-  }
-}
-
-// Build system prompt with Shopify context
-function buildSystemPrompt(agentConfig: any, shopDomain: string): string {
-  const defaultPrompt = `You are a helpful AI shopping assistant for ${shopDomain}. 
-You help customers with:
-- Product information and recommendations
-- Order tracking and status
-- Shipping and delivery questions
-- Returns and refunds
-- General shopping assistance
-
-Be friendly, concise, and helpful. If you don't know something, be honest and offer to help find the information.`;
-
-  return agentConfig?.system_prompt || defaultPrompt;
-}
-
-// Handler functions
-async function handleAudioChunk(
-  socket: WebSocket,
-  data: any,
-  session: VoiceSession | null,
-  supabase: any
-) {
-  if (!session || !session.openAIWebSocket || !session.isOpenAIConnected) {
-    console.warn('Cannot process audio: OpenAI not connected');
-    return;
-  }
-
-  // Audio chunk is base64 encoded PCM16 at 24kHz from browser
-  const audioBase64 = data.audio;
-  
-  console.log('Forwarding audio chunk to OpenAI, size:', audioBase64?.length || 0);
-  
-  try {
-    // Forward audio directly to OpenAI
-    session.openAIWebSocket.send(JSON.stringify({
-      type: 'input_audio_buffer.append',
-      audio: audioBase64,
-    }));
-  } catch (error) {
-    console.error('Error forwarding audio to OpenAI:', error);
+    console.error('[GPT] Error:', error);
     socket.send(JSON.stringify({
       type: 'error',
-      error: 'Failed to process audio',
+      message: 'Failed to process request'
     }));
+  } finally {
+    session.isProcessing = false;
   }
 }
 
-async function handleTextMessage(
-  socket: WebSocket,
-  data: any,
-  session: VoiceSession | null,
-  supabase: any
-) {
-  if (!session || !session.openAIWebSocket || !session.isOpenAIConnected) {
-    console.warn('Cannot process text: OpenAI not connected');
+async function generateSpeech(sessionId: string, text: string, socket: WebSocket) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  const ELEVENLABS_API_KEY = Deno.env.get('ELEVENLABS_API_KEY');
+  if (!ELEVENLABS_API_KEY) {
+    console.error('[ElevenLabs] API key not configured');
     return;
   }
-  
-  const userMessage = data.text;
-  console.log('Text message:', userMessage);
-  
+
+  const supabaseClient = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
+
+  // Get shop ID
+  const { data: shopData } = await supabaseClient
+    .from('shops')
+    .select('id')
+    .eq('shop_domain', session.shopDomain)
+    .single();
+
+  // Get voice configuration
+  const { data: agentConfig } = await supabaseClient
+    .from('agent_config')
+    .select('voice_model')
+    .eq('shop_id', shopData?.id)
+    .single();
+
+  const voiceId = agentConfig?.voice_model || '9BWtsMINqrJLrRacOk9x'; // Default: Aria
+
+  try {
+    console.log('[ElevenLabs] Generating speech...');
+
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
+      {
+        method: 'POST',
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': ELEVENLABS_API_KEY
+        },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_turbo_v2_5',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0,
+            use_speaker_boost: true
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`ElevenLabs API error: ${response.status}`);
+    }
+
+    const audioBuffer = await response.arrayBuffer();
+    const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(audioBuffer)));
+
+    console.log(`[ElevenLabs] Generated ${audioBuffer.byteLength} bytes of audio`);
+
+    socket.send(JSON.stringify({
+      type: 'audio.response',
+      audio: audioBase64,
+      format: 'mp3'
+    }));
+
+  } catch (error) {
+    console.error('[ElevenLabs] Error:', error);
+  }
+}
+
+async function handleTextMessage(sessionId: string, message: string, socket: WebSocket, shopId: string) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  const supabaseClient = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
+
   // Create conversation if not exists
   if (!session.conversationId) {
-    const { data: conversation } = await supabase
+    const { data, error } = await supabaseClient
       .from('voice_conversations')
       .insert({
-        shop_id: session.shopId,
-        customer_identifier: data.customer_id || 'anonymous',
+        shop_id: shopId,
+        customer_identifier: 'web-customer',
         transcript: [],
-        topic: 'General inquiry',
-        sentiment: 'neutral',
       })
       .select()
-      .maybeSingle();
-    
-    if (conversation) {
-      session.conversationId = conversation.id;
+      .single();
+
+    if (!error && data) {
+      session.conversationId = data.id;
     }
   }
-  
-  // Add to transcript
+
   session.transcript.push({
     role: 'customer',
-    content: userMessage,
-    timestamp: new Date().toISOString(),
+    content: message,
+    timestamp: new Date().toISOString()
   });
+
+  await processWithGPT(sessionId, message, socket);
+}
+
+async function handleEndSession(sessionId: string, socket: WebSocket) {
+  console.log('[Session] Ending session:', sessionId);
   
-  session.conversationHistory.push({
-    role: 'user',
-    content: userMessage,
-  });
-  
-  // Send transcript update to client
+  const session = sessions.get(sessionId);
+  if (session?.deepgramConnection) {
+    session.deepgramConnection.close();
+  }
+
   socket.send(JSON.stringify({
-    type: 'transcript_update',
-    role: 'customer',
-    text: userMessage,
+    type: 'session.ended',
+    message: 'Session ended successfully'
   }));
-  
-  // Send text message to OpenAI
+
+  socket.close();
+}
+
+async function saveSessionToDatabase(sessionId: string, shopId: string) {
+  const session = sessions.get(sessionId);
+  if (!session || session.transcript.length === 0) return;
+
+  const supabaseClient = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
+
   try {
-    session.openAIWebSocket.send(JSON.stringify({
-      type: 'conversation.item.create',
-      item: {
-        type: 'message',
-        role: 'user',
-        content: [
-          {
-            type: 'input_text',
-            text: userMessage,
-          }
-        ]
-      }
-    }));
+    const duration = Math.floor((Date.now() - session.startTime) / 1000);
+    const transcriptText = session.transcript.map(t => t.content).join(' ');
     
-    // Trigger response
-    session.openAIWebSocket.send(JSON.stringify({
-      type: 'response.create',
-    }));
+    const sentiment = calculateSentiment(transcriptText);
+    const topic = extractTopic(transcriptText);
+
+    if (session.conversationId) {
+      await supabaseClient
+        .from('voice_conversations')
+        .update({
+          transcript: session.transcript,
+          duration_seconds: duration,
+          sentiment,
+          topic,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', session.conversationId);
+    } else {
+      await supabaseClient
+        .from('voice_conversations')
+        .insert({
+          shop_id: shopId,
+          customer_identifier: 'web-customer',
+          transcript: session.transcript,
+          duration_seconds: duration,
+          sentiment,
+          topic,
+        });
+    }
+
+    console.log('[Database] Session saved:', sessionId);
   } catch (error) {
-    console.error('Error sending text to OpenAI:', error);
-    socket.send(JSON.stringify({
-      type: 'error',
-      error: 'Failed to process text message',
-    }));
+    console.error('[Database] Error saving session:', error);
   }
 }
 
-async function handleEndSession(
-  socket: WebSocket,
-  session: VoiceSession | null,
-  supabase: any
-) {
-  if (!session) return;
+function buildSystemPrompt(shopDomain: string): string {
+  return `You are a helpful AI voice assistant for ${shopDomain}. 
+Keep responses concise (under 50 words) and natural for voice conversation.
+Be professional, friendly, and helpful. Answer customer questions about products, orders, and general inquiries.`;
+}
+
+function calculateSentiment(transcript: string): string {
+  const positive = ['great', 'good', 'thanks', 'thank', 'excellent', 'happy', 'love'];
+  const negative = ['bad', 'poor', 'terrible', 'angry', 'frustrated', 'disappointed'];
   
-  console.log('Ending session:', session.sessionId);
+  const text = transcript.toLowerCase();
+  const positiveCount = positive.filter(word => text.includes(word)).length;
+  const negativeCount = negative.filter(word => text.includes(word)).length;
   
-  // Close OpenAI connection
-  if (session.openAIWebSocket) {
-    try {
-      session.openAIWebSocket.close();
-    } catch (error) {
-      console.error('Error closing OpenAI connection:', error);
+  if (positiveCount > negativeCount) return 'positive';
+  if (negativeCount > positiveCount) return 'negative';
+  return 'neutral';
+}
+
+function extractTopic(transcript: string): string {
+  const topics = {
+    'product': ['product', 'item', 'price', 'cost', 'buy', 'purchase'],
+    'order': ['order', 'shipping', 'delivery', 'track', 'status'],
+    'support': ['help', 'support', 'problem', 'issue', 'question'],
+    'return': ['return', 'refund', 'exchange', 'cancel'],
+  };
+  
+  const text = transcript.toLowerCase();
+  let maxCount = 0;
+  let detectedTopic = 'general';
+  
+  for (const [topic, keywords] of Object.entries(topics)) {
+    const count = keywords.filter(keyword => text.includes(keyword)).length;
+    if (count > maxCount) {
+      maxCount = count;
+      detectedTopic = topic;
     }
   }
   
-  await saveSessionToDatabase(session, supabase);
-  
-  socket.send(JSON.stringify({
-    type: 'session_ended',
-    sessionId: session.sessionId,
-  }));
+  return detectedTopic;
 }
-
-async function saveSessionToDatabase(session: VoiceSession, supabase: any) {
-  console.log('Saving session to database:', session.sessionId);
-  
-  const durationSeconds = Math.floor(
-    (Date.now() - session.startTime.getTime()) / 1000
-  );
-  
-  // Calculate sentiment
-  const sentiment = calculateSentiment(session.transcript);
-  
-  // Extract topic
-  const topic = extractTopic(session.transcript);
-  
-  if (session.conversationId) {
-    // Update existing conversation
-    await supabase
-      .from('voice_conversations')
-      .update({
-        duration_seconds: durationSeconds,
-        sentiment,
-        topic,
-        transcript: session.transcript,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', session.conversationId);
-  } else if (session.transcript.length > 0) {
-    // Create new conversation record
-    await supabase
-      .from('voice_conversations')
-      .insert({
-        shop_id: session.shopId,
-        customer_identifier: session.customerIdentifier || 'anonymous',
-        duration_seconds: durationSeconds,
-        sentiment,
-        topic,
-        transcript: session.transcript,
-      });
-  }
-  
-  console.log('Session saved successfully');
-}
-
-function calculateSentiment(transcript: Array<{ role: string; content: string }>): string {
-  const positiveWords = ["great", "perfect", "thanks", "love", "happy", "excellent", "amazing", "wonderful"];
-  const negativeWords = ["issue", "problem", "bad", "broken", "refund", "complaint", "frustrated", "angry"];
-  
-  let positiveCount = 0;
-  let negativeCount = 0;
-  
-  transcript.forEach(msg => {
-    const content = msg.content.toLowerCase();
-    positiveWords.forEach(word => {
-      if (content.includes(word)) positiveCount++;
-    });
-    negativeWords.forEach(word => {
-      if (content.includes(word)) negativeCount++;
-    });
-  });
-  
-  if (positiveCount > negativeCount + 1) return "positive";
-  if (negativeCount > positiveCount + 1) return "negative";
-  return "neutral";
-}
-
-function extractTopic(transcript: Array<{ role: string; content: string }>): string {
-  if (transcript.length === 0) return "General inquiry";
-  
-  const allText = transcript.map(t => t.content.toLowerCase()).join(" ");
-  
-  if (allText.includes("order") || allText.includes("track")) return "Order status";
-  if (allText.includes("return") || allText.includes("refund")) return "Refund request";
-  if (allText.includes("ship") || allText.includes("delivery")) return "Shipping";
-  if (allText.includes("price") || allText.includes("cost")) return "Pricing";
-  if (allText.includes("product") || allText.includes("item")) return "Product inquiry";
-  if (allText.includes("stock") || allText.includes("available")) return "Availability";
-  
-  return "General inquiry";
-}
-

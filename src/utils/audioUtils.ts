@@ -1,4 +1,4 @@
-// Audio utilities for OpenAI Realtime API (PCM16 @ 24kHz)
+// Audio utilities for Deepgram STT (24kHz PCM16) and ElevenLabs TTS (MP3)
 
 export class AudioRecorder {
   private stream: MediaStream | null = null;
@@ -29,30 +29,32 @@ export class AudioRecorder {
       
       this.processor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
-        const base64Audio = this.encodeAudioToPCM16(inputData);
+        const pcm16 = this.floatTo16BitPCM(inputData);
+        const base64Audio = this.arrayBufferToBase64(pcm16.buffer);
         this.onAudioData(base64Audio);
       };
       
       this.source.connect(this.processor);
       this.processor.connect(this.audioContext.destination);
       
-      console.log('Audio recording started - PCM16 @ 24kHz');
+      console.log('[AudioRecorder] Recording started - PCM16 @ 24kHz');
     } catch (error) {
-      console.error('Error accessing microphone:', error);
+      console.error('[AudioRecorder] Error accessing microphone:', error);
       throw error;
     }
   }
 
-  private encodeAudioToPCM16(float32Array: Float32Array): string {
-    // Convert Float32 PCM (-1 to 1) to Int16 PCM (-32768 to 32767)
+  private floatTo16BitPCM(float32Array: Float32Array): Int16Array {
     const int16Array = new Int16Array(float32Array.length);
     for (let i = 0; i < float32Array.length; i++) {
       const s = Math.max(-1, Math.min(1, float32Array[i]));
       int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
-    
-    // Convert to base64
-    const uint8Array = new Uint8Array(int16Array.buffer);
+    return int16Array;
+  }
+
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const uint8Array = new Uint8Array(buffer);
     let binary = '';
     const chunkSize = 0x8000;
     
@@ -81,117 +83,91 @@ export class AudioRecorder {
       this.audioContext.close();
       this.audioContext = null;
     }
+    console.log('[AudioRecorder] Recording stopped');
   }
 }
 
 export class AudioPlayer {
   private audioContext: AudioContext | null = null;
-  private audioQueue: Uint8Array[] = [];
-  private isPlaying: boolean = false;
+  private queue: Blob[] = [];
+  private isPlaying = false;
+  private currentAudio: HTMLAudioElement | null = null;
 
   constructor() {
-    this.audioContext = new AudioContext({ sampleRate: 24000 });
+    this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    console.log('[AudioPlayer] Initialized');
   }
 
   async addToQueue(base64Audio: string) {
     try {
-      // Decode base64 to PCM16 audio
+      // Convert base64 MP3 to Blob
       const binaryString = atob(base64Audio);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
       
-      this.audioQueue.push(bytes);
+      const blob = new Blob([bytes], { type: 'audio/mpeg' });
+      this.queue.push(blob);
+      
+      console.log('[AudioPlayer] Added to queue, queue length:', this.queue.length);
       
       if (!this.isPlaying) {
         await this.playNext();
       }
     } catch (error) {
-      console.error('Error adding audio to queue:', error);
+      console.error('[AudioPlayer] Error adding to queue:', error);
     }
   }
 
   private async playNext() {
-    if (this.audioQueue.length === 0) {
+    if (this.queue.length === 0) {
       this.isPlaying = false;
+      console.log('[AudioPlayer] Queue empty');
       return;
     }
 
     this.isPlaying = true;
-    const audioData = this.audioQueue.shift()!;
+    const audioBlob = this.queue.shift()!;
 
     try {
-      const wavData = this.createWavFromPCM(audioData);
-      const audioBuffer = await this.audioContext!.decodeAudioData(wavData.buffer);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      this.currentAudio = new Audio(audioUrl);
       
-      const source = this.audioContext!.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(this.audioContext!.destination);
-      
-      source.onended = () => this.playNext();
-      source.start(0);
+      this.currentAudio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        this.currentAudio = null;
+        this.playNext();
+      };
+
+      this.currentAudio.onerror = (error) => {
+        console.error('[AudioPlayer] Playback error:', error);
+        URL.revokeObjectURL(audioUrl);
+        this.currentAudio = null;
+        this.playNext();
+      };
+
+      await this.currentAudio.play();
+      console.log('[AudioPlayer] Playing audio');
     } catch (error) {
-      console.error('Error playing audio:', error);
-      // Continue with next segment even if current fails
+      console.error('[AudioPlayer] Error playing audio:', error);
       this.playNext();
     }
   }
 
-  private createWavFromPCM(pcmData: Uint8Array): Uint8Array {
-    // Convert bytes to 16-bit samples
-    const int16Data = new Int16Array(pcmData.length / 2);
-    for (let i = 0; i < pcmData.length; i += 2) {
-      int16Data[i / 2] = (pcmData[i + 1] << 8) | pcmData[i];
-    }
-    
-    // Create WAV header
-    const wavHeader = new ArrayBuffer(44);
-    const view = new DataView(wavHeader);
-    
-    const writeString = (offset: number, string: string) => {
-      for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
-      }
-    };
-
-    // WAV header parameters
-    const sampleRate = 24000;
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const blockAlign = (numChannels * bitsPerSample) / 8;
-    const byteRate = sampleRate * blockAlign;
-
-    // Write WAV header
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + int16Data.byteLength, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true); // Subchunk1Size
-    view.setUint16(20, 1, true); // AudioFormat (PCM)
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, byteRate, true);
-    view.setUint16(32, blockAlign, true);
-    view.setUint16(34, bitsPerSample, true);
-    writeString(36, 'data');
-    view.setUint32(40, int16Data.byteLength, true);
-
-    // Combine header and data
-    const wavArray = new Uint8Array(wavHeader.byteLength + int16Data.byteLength);
-    wavArray.set(new Uint8Array(wavHeader), 0);
-    wavArray.set(new Uint8Array(int16Data.buffer), wavHeader.byteLength);
-    
-    return wavArray;
-  }
-
   stop() {
-    this.audioQueue = [];
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio = null;
+    }
+    this.queue = [];
     this.isPlaying = false;
+    
     if (this.audioContext) {
       this.audioContext.close();
       this.audioContext = null;
     }
+    console.log('[AudioPlayer] Stopped and cleared queue');
   }
 }
 
