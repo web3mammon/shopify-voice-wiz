@@ -14,7 +14,194 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      agent_config: {
+        Row: {
+          created_at: string | null
+          greeting_message: string | null
+          id: string
+          is_enabled: boolean | null
+          max_duration_minutes: number | null
+          shop_id: string
+          system_prompt: string | null
+          updated_at: string | null
+          voice_model: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          greeting_message?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          max_duration_minutes?: number | null
+          shop_id: string
+          system_prompt?: string | null
+          updated_at?: string | null
+          voice_model?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          greeting_message?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          max_duration_minutes?: number | null
+          shop_id?: string
+          system_prompt?: string | null
+          updated_at?: string | null
+          voice_model?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_config_shop_id_fkey"
+            columns: ["shop_id"]
+            isOneToOne: true
+            referencedRelation: "shops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      installations: {
+        Row: {
+          id: string
+          installed_at: string | null
+          shop_id: string
+          status: string | null
+          uninstalled_at: string | null
+        }
+        Insert: {
+          id?: string
+          installed_at?: string | null
+          shop_id: string
+          status?: string | null
+          uninstalled_at?: string | null
+        }
+        Update: {
+          id?: string
+          installed_at?: string | null
+          shop_id?: string
+          status?: string | null
+          uninstalled_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "installations_shop_id_fkey"
+            columns: ["shop_id"]
+            isOneToOne: false
+            referencedRelation: "shops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shops: {
+        Row: {
+          access_token: string
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          scope: string
+          shop_domain: string
+          updated_at: string | null
+        }
+        Insert: {
+          access_token: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          scope: string
+          shop_domain: string
+          updated_at?: string | null
+        }
+        Update: {
+          access_token?: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          scope?: string
+          shop_domain?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      voice_conversations: {
+        Row: {
+          created_at: string | null
+          customer_identifier: string | null
+          duration_seconds: number | null
+          id: string
+          sentiment: string | null
+          shop_id: string
+          topic: string | null
+          transcript: Json | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          customer_identifier?: string | null
+          duration_seconds?: number | null
+          id?: string
+          sentiment?: string | null
+          shop_id: string
+          topic?: string | null
+          transcript?: Json | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          customer_identifier?: string | null
+          duration_seconds?: number | null
+          id?: string
+          sentiment?: string | null
+          shop_id?: string
+          topic?: string | null
+          transcript?: Json | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "voice_conversations_shop_id_fkey"
+            columns: ["shop_id"]
+            isOneToOne: false
+            referencedRelation: "shops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_config: {
+        Row: {
+          button_text: string | null
+          created_at: string | null
+          id: string
+          position: string | null
+          primary_color: string | null
+          shop_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          button_text?: string | null
+          created_at?: string | null
+          id?: string
+          position?: string | null
+          primary_color?: string | null
+          shop_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          button_text?: string | null
+          created_at?: string | null
+          id?: string
+          position?: string | null
+          primary_color?: string | null
+          shop_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_config_shop_id_fkey"
+            columns: ["shop_id"]
+            isOneToOne: true
+            referencedRelation: "shops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
