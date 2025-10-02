@@ -370,6 +370,12 @@ async function processWithGPT(sessionId: string, userInput: string, socket: WebS
     const aiResponse = fullResponse || 'I apologize, I didn\'t catch that.';
     console.log('[GPT] Complete response:', aiResponse);
 
+    // Send text response to client immediately
+    socket.send(JSON.stringify({
+      type: 'text.response',
+      text: aiResponse
+    }));
+
     // Update conversation history
     session.conversationHistory.push(
       { role: 'user', content: userInput },
@@ -425,7 +431,7 @@ async function generateSpeech(sessionId: string, text: string, socket: WebSocket
     .eq('shop_id', shopData?.id)
     .single();
 
-  const voiceId = agentConfig?.voice_model || 'Kft8nAqXain1XJjJLVz7'; // Default voice
+  const voiceId = agentConfig?.voice_model || '9BWtsMINqrJLrRacOk9x'; // Default: Aria
 
   try {
     console.log('[ElevenLabs] Generating speech...');
