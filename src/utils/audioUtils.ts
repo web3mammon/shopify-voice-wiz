@@ -131,9 +131,10 @@ export class AudioPlayer {
       return;
     }
 
-    // Ensure previous audio is stopped
+    // Ensure previous audio is stopped and cleaned up
     if (this.currentAudio) {
       this.currentAudio.pause();
+      this.currentAudio.src = '';
       this.currentAudio = null;
     }
 
@@ -142,37 +143,65 @@ export class AudioPlayer {
 
     try {
       const audioUrl = URL.createObjectURL(audioBlob);
-      this.currentAudio = new Audio(audioUrl);
+      this.currentAudio = new Audio();
+      this.currentAudio.preload = 'auto';
+      this.currentAudio.src = audioUrl;
       
-      // Wait for audio to be ready
+      console.log('[AudioPlayer] Loading chunk. Remaining:', this.queue.length);
+      
+      // Wait for audio to be fully loaded
       await new Promise<void>((resolve, reject) => {
-        this.currentAudio!.oncanplaythrough = () => resolve();
-        this.currentAudio!.onerror = (error) => reject(error);
-        this.currentAudio!.load();
-      });
-
-      console.log('[AudioPlayer] Playing chunk. Remaining:', this.queue.length);
-      
-      // Play and wait for completion
-      await new Promise<void>((resolve) => {
-        this.currentAudio!.onended = () => {
-          URL.revokeObjectURL(audioUrl);
-          this.currentAudio = null;
+        const timeout = setTimeout(() => reject(new Error('Audio load timeout')), 10000);
+        
+        this.currentAudio!.onloadeddata = () => {
+          clearTimeout(timeout);
+          console.log('[AudioPlayer] Chunk loaded, duration:', this.currentAudio!.duration);
           resolve();
         };
         
         this.currentAudio!.onerror = (error) => {
-          console.error('[AudioPlayer] Playback error:', error);
-          URL.revokeObjectURL(audioUrl);
-          this.currentAudio = null;
-          resolve(); // Continue to next chunk
+          clearTimeout(timeout);
+          reject(error);
+        };
+      });
+
+      console.log('[AudioPlayer] Playing chunk');
+      
+      // Play and wait for full completion
+      await new Promise<void>((resolve) => {
+        let hasEnded = false;
+        
+        this.currentAudio!.onended = () => {
+          if (!hasEnded) {
+            hasEnded = true;
+            console.log('[AudioPlayer] Chunk ended naturally');
+            // Small delay to ensure audio is fully processed
+            setTimeout(() => {
+              URL.revokeObjectURL(audioUrl);
+              this.currentAudio = null;
+              resolve();
+            }, 50);
+          }
+        };
+        
+        this.currentAudio!.onerror = (error) => {
+          if (!hasEnded) {
+            hasEnded = true;
+            console.error('[AudioPlayer] Playback error:', error);
+            URL.revokeObjectURL(audioUrl);
+            this.currentAudio = null;
+            resolve();
+          }
         };
         
         this.currentAudio!.play().catch((error) => {
-          console.error('[AudioPlayer] Play error:', error);
-          URL.revokeObjectURL(audioUrl);
-          this.currentAudio = null;
-          resolve(); // Continue to next chunk
+          if (!hasEnded) {
+            hasEnded = true;
+            console.error('[AudioPlayer] Play error:', error);
+            URL.revokeObjectURL(audioUrl);
+            this.currentAudio = null;
+            resolve();
+          }
         });
       });
       
