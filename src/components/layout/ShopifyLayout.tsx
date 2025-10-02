@@ -5,7 +5,6 @@ import {
   SettingsIcon,
   ChartLineIcon,
   PhoneIcon,
-  StoreIcon,
   CodeIcon,
 } from '@shopify/polaris-icons';
 import { useState, useCallback } from 'react';
@@ -35,13 +34,6 @@ export default function ShopifyLayout({ children }: ShopifyLayoutProps) {
             icon: HomeIcon,
             selected: location.pathname === '/',
             onClick: () => navigate('/'),
-          },
-          {
-            url: '/shops',
-            label: 'Shops & Clients',
-            icon: StoreIcon,
-            selected: location.pathname === '/shops',
-            onClick: () => navigate('/shops'),
           },
           {
             url: '/conversations',
