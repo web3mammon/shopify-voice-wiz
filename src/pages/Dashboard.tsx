@@ -1,4 +1,4 @@
-import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, Button } from '@shopify/polaris';
+import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, Button, Banner } from '@shopify/polaris';
 import { useState, useEffect } from 'react';
 
 interface DashboardStats {
@@ -69,15 +69,76 @@ export default function Dashboard() {
     return <Badge tone={tones[sentiment] || 'info'}>{sentiment}</Badge>;
   };
 
+  const [agentStatus, setAgentStatus] = useState<'running' | 'paused'>('running');
+  const [setupStatus, setSetupStatus] = useState<'complete' | 'warning' | 'critical'>('warning');
+
+  const handleToggleAgent = () => {
+    setAgentStatus(prev => prev === 'running' ? 'paused' : 'running');
+  };
+
+  const getStatusBanner = () => {
+    if (setupStatus === 'complete') {
+      return {
+        tone: 'success' as const,
+        title: '✅ All Systems Ready',
+        message: 'Your Voice AI agent is fully configured and ready to handle customer inquiries.'
+      };
+    } else if (setupStatus === 'warning') {
+      return {
+        tone: 'warning' as const,
+        title: '⚠️ Configuration Incomplete',
+        message: 'Some settings need attention. Please complete AI Agent Setup and Store Integration.'
+      };
+    } else {
+      return {
+        tone: 'critical' as const,
+        title: '🚨 Critical Setup Required',
+        message: 'Essential configuration missing. Your voice AI cannot function until setup is complete.'
+      };
+    }
+  };
+
+  const statusBanner = getStatusBanner();
+
   return (
     <Page
       title="Voice AI Dashboard"
       subtitle="Monitor your voice AI agent performance and customer interactions"
     >
       <Layout>
-        {/* Stats Overview */}
+        {/* Setup Status Banner */}
         <Layout.Section>
-          <InlineStack gap="400">
+          <Banner tone={statusBanner.tone} title={statusBanner.title}>
+            <p>{statusBanner.message}</p>
+          </Banner>
+        </Layout.Section>
+
+        {/* AI Agent Control */}
+        <Layout.Section>
+          <Card>
+            <InlineStack align="space-between" blockAlign="center">
+              <BlockStack gap="100">
+                <Text as="h2" variant="headingLg">
+                  Voice AI Agent Status
+                </Text>
+                <Text as="p" variant="bodyMd" tone="subdued">
+                  {agentStatus === 'running' ? '🟢 Agent is active and handling calls' : '🔴 Agent is paused'}
+                </Text>
+              </BlockStack>
+              <Button
+                variant={agentStatus === 'running' ? 'primary' : 'secondary'}
+                tone={agentStatus === 'running' ? 'critical' : 'success'}
+                onClick={handleToggleAgent}
+              >
+                {agentStatus === 'running' ? 'Pause AI Agent' : 'Resume AI Agent'}
+              </Button>
+            </InlineStack>
+          </Card>
+        </Layout.Section>
+
+        {/* Stats Overview - Full Width Grid */}
+        <Layout.Section>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
               <BlockStack gap="200">
                 <Text as="h2" variant="headingMd">
@@ -136,7 +197,7 @@ export default function Dashboard() {
                 </Text>
               </BlockStack>
             </Card>
-          </InlineStack>
+          </div>
         </Layout.Section>
 
         {/* Recent Conversations */}
