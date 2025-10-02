@@ -8,7 +8,7 @@ export default function AISetup() {
   const { config, loading, updateConfig } = useAgentConfig();
   const { config: widgetConfig, loading: widgetLoading, updateConfig: updateWidgetConfig } = useWidgetConfig();
   
-  const [voiceModel, setVoiceModel] = useState('alloy');
+  const [voiceModel, setVoiceModel] = useState('Kft8nAqXain1XJjJLVz7');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [greeting, setGreeting] = useState('');
   const [maxDuration, setMaxDuration] = useState('5');
@@ -38,12 +38,13 @@ export default function AISetup() {
   }, [widgetConfig, widgetLoading]);
 
   const voiceOptions = [
-    { label: 'Alloy (Neutral)', value: 'alloy' },
-    { label: 'Echo (Male)', value: 'echo' },
-    { label: 'Fable (British Male)', value: 'fable' },
-    { label: 'Onyx (Deep Male)', value: 'onyx' },
-    { label: 'Nova (Female)', value: 'nova' },
-    { label: 'Shimmer (Soft Female)', value: 'shimmer' },
+    { label: 'Aria', value: '9BWtsMINqrJLrRacOk9x' },
+    { label: 'Roger', value: 'CwhRBWXzGAHq8TQ4Fs17' },
+    { label: 'Sarah', value: 'EXAVITQu4vr4xnSDxMaL' },
+    { label: 'Laura', value: 'FGY2WhTYpPnrIDTdsKH5' },
+    { label: 'Charlie', value: 'IKne3meq5aSn9XLyUdCD' },
+    { label: 'George', value: 'JBFqnCBsd6RMkjVDRZzb' },
+    { label: 'Custom Voice', value: 'Kft8nAqXain1XJjJLVz7' },
   ];
 
   const handleSave = async () => {
