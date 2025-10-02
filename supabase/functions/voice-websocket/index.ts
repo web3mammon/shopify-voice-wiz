@@ -317,7 +317,7 @@ async function processWithGPT(sessionId: string, userInput: string, socket: WebS
       { role: 'user', content: userInput }
     ];
 
-    console.log('[GPT] Sending request...');
+    console.log('[GPT] Sending streaming request...');
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -330,6 +330,7 @@ async function processWithGPT(sessionId: string, userInput: string, socket: WebS
         messages,
         max_tokens: 150,
         temperature: 0.7,
+        stream: true, // Enable streaming
       })
     });
 
@@ -337,10 +338,40 @@ async function processWithGPT(sessionId: string, userInput: string, socket: WebS
       throw new Error(`GPT API error: ${response.status}`);
     }
 
-    const data = await response.json();
-    const aiResponse = data.choices[0]?.message?.content || 'I apologize, I didn\'t catch that.';
+    // Stream the response
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let fullResponse = '';
 
-    console.log('[GPT] Response:', aiResponse);
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              const content = parsed.choices[0]?.delta?.content;
+              if (content) {
+                fullResponse += content;
+              }
+            } catch (e) {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+    }
+
+    const aiResponse = fullResponse || 'I apologize, I didn\'t catch that.';
+    console.log('[GPT] Complete response:', aiResponse);
 
     // Update conversation history
     session.conversationHistory.push(
@@ -354,7 +385,7 @@ async function processWithGPT(sessionId: string, userInput: string, socket: WebS
       timestamp: new Date().toISOString()
     });
 
-    // Generate audio with ElevenLabs
+    // Generate audio with ElevenLabs (streaming)
     await generateSpeech(sessionId, aiResponse, socket);
 
   } catch (error) {
@@ -428,16 +459,29 @@ async function generateSpeech(sessionId: string, text: string, socket: WebSocket
       throw new Error(`ElevenLabs API error: ${response.status}`);
     }
 
-    const audioBuffer = await response.arrayBuffer();
-    const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(audioBuffer)));
+    // Stream audio chunks as they arrive
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('No response body');
+    }
 
-    console.log(`[ElevenLabs] Generated ${audioBuffer.byteLength} bytes of audio`);
+    let totalBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    socket.send(JSON.stringify({
-      type: 'audio.response',
-      audio: audioBase64,
-      format: 'mp3'
-    }));
+      totalBytes += value.byteLength;
+      
+      // Send each chunk immediately as it arrives
+      const audioBase64 = btoa(String.fromCharCode(...value));
+      socket.send(JSON.stringify({
+        type: 'audio.response',
+        audio: audioBase64,
+        format: 'mp3'
+      }));
+    }
+
+    console.log(`[ElevenLabs] Streamed ${totalBytes} bytes of audio`);
 
   } catch (error) {
     console.error('[ElevenLabs] Error:', error);
