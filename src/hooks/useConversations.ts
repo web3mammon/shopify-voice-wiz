@@ -13,9 +13,10 @@ export interface Conversation {
   formattedTime: string;
 }
 
-export const useConversations = (searchQuery?: string, sentimentFilter?: string) => {
+export const useConversations = (searchQuery?: string, sentimentFilter?: string, page: number = 1, pageSize: number = 10) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     const fetchConversations = async () => {
@@ -23,7 +24,7 @@ export const useConversations = (searchQuery?: string, sentimentFilter?: string)
       try {
         let query = supabase
           .from('voice_conversations')
-          .select('*')
+          .select('*', { count: 'exact' })
           .order('created_at', { ascending: false });
 
         // Apply sentiment filter
@@ -36,7 +37,12 @@ export const useConversations = (searchQuery?: string, sentimentFilter?: string)
           query = query.or(`customer_identifier.ilike.%${searchQuery}%,topic.ilike.%${searchQuery}%`);
         }
 
-        const { data, error } = await query;
+        // Apply pagination
+        const from = (page - 1) * pageSize;
+        const to = from + pageSize - 1;
+        query = query.range(from, to);
+
+        const { data, error, count } = await query;
 
         if (error) throw error;
 
@@ -61,6 +67,7 @@ export const useConversations = (searchQuery?: string, sentimentFilter?: string)
         }) || [];
 
         setConversations(formatted);
+        setTotalCount(count || 0);
       } catch (error) {
         console.error('Error fetching conversations:', error);
       } finally {
@@ -69,7 +76,7 @@ export const useConversations = (searchQuery?: string, sentimentFilter?: string)
     };
 
     fetchConversations();
-  }, [searchQuery, sentimentFilter]);
+  }, [searchQuery, sentimentFilter, page, pageSize]);
 
-  return { conversations, loading };
+  return { conversations, loading, totalCount };
 };

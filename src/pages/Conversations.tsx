@@ -1,4 +1,4 @@
-import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, TextField, Select, Button, Spinner, ButtonGroup } from '@shopify/polaris';
+import { Page, Layout, Card, Text, BlockStack, InlineStack, Badge, TextField, Select, Button, Spinner, ButtonGroup, Pagination } from '@shopify/polaris';
 import { useState } from 'react';
 import { useConversations } from '@/hooks/useConversations';
 import { useToast } from '@/hooks/use-toast';
@@ -7,9 +7,24 @@ export default function Conversations() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sentimentFilter, setSentimentFilter] = useState('all');
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
 
-  const { conversations, loading } = useConversations(searchQuery, sentimentFilter);
+  const pageSize = 10;
+  const { conversations, loading, totalCount } = useConversations(searchQuery, sentimentFilter, currentPage, pageSize);
+  
+  const totalPages = Math.ceil(totalCount / pageSize);
+
+  // Reset to page 1 when filters change
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    setCurrentPage(1);
+  };
+
+  const handleSentimentChange = (value: string) => {
+    setSentimentFilter(value);
+    setCurrentPage(1);
+  };
 
   const exportToCSV = () => {
     const headers = ['Customer', 'Topic', 'Sentiment', 'Duration (s)', 'Date'];
@@ -89,7 +104,7 @@ export default function Conversations() {
                   <TextField
                     label="Search conversations"
                     value={searchQuery}
-                    onChange={setSearchQuery}
+                    onChange={handleSearchChange}
                     placeholder="Search by customer or topic..."
                     autoComplete="off"
                   />
@@ -99,7 +114,7 @@ export default function Conversations() {
                     label="Filter by sentiment"
                     options={sentimentFilterOptions}
                     value={sentimentFilter}
-                    onChange={setSentimentFilter}
+                    onChange={handleSentimentChange}
                   />
                 </div>
                 <ButtonGroup>
@@ -117,22 +132,23 @@ export default function Conversations() {
 
         {/* Conversations List */}
         <Layout.Section>
-          {loading ? (
-            <Card>
-              <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
-                <Spinner size="large" />
-              </div>
-            </Card>
-          ) : conversations.length === 0 ? (
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" variant="bodyMd" alignment="center" tone="subdued">
-                  No conversations found
-                </Text>
-              </BlockStack>
-            </Card>
-          ) : (
-            <BlockStack gap="300">
+          <BlockStack gap="400">
+            {loading ? (
+              <Card>
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                  <Spinner size="large" />
+                </div>
+              </Card>
+            ) : conversations.length === 0 ? (
+              <Card>
+                <BlockStack gap="200">
+                  <Text as="p" variant="bodyMd" alignment="center" tone="subdued">
+                    No conversations found
+                  </Text>
+                </BlockStack>
+              </Card>
+            ) : (
+              <BlockStack gap="300">
               {conversations.map((conversation) => (
                 <Card key={conversation.id}>
                   <InlineStack align="space-between" blockAlign="start">
@@ -210,8 +226,24 @@ export default function Conversations() {
                   )}
                 </Card>
               ))}
-            </BlockStack>
-          )}
+              </BlockStack>
+            )}
+
+            {/* Pagination */}
+            {!loading && conversations.length > 0 && totalPages > 1 && (
+              <Card>
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '16px' }}>
+                  <Pagination
+                    hasPrevious={currentPage > 1}
+                    onPrevious={() => setCurrentPage(currentPage - 1)}
+                    hasNext={currentPage < totalPages}
+                    onNext={() => setCurrentPage(currentPage + 1)}
+                    label={`Page ${currentPage} of ${totalPages}`}
+                  />
+                </div>
+              </Card>
+            )}
+          </BlockStack>
         </Layout.Section>
 
         {/* Summary Stats */}
@@ -223,7 +255,7 @@ export default function Conversations() {
               </Text>
               <InlineStack gap="400" wrap={true}>
                 <div>
-                  <Text as="p" variant="headingMd">{conversations.length}</Text>
+                  <Text as="p" variant="headingMd">{totalCount}</Text>
                   <Text as="p" variant="bodySm" tone="subdued">Total Conversations</Text>
                 </div>
                 <div>
