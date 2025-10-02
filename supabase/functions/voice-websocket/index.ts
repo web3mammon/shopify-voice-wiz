@@ -1,7 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import WS from "https://raw.githubusercontent.com/scientific-dev/custom-socket/main/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -165,8 +164,8 @@ async function initializeDeepgram(sessionId: string, clientSocket: WebSocket): P
   try {
     console.log('[Deepgram] Initializing connection for session:', sessionId);
     
-    // Connect to Deepgram streaming API with Authorization header
-    const deepgramWs = new WS(
+    // Connect to Deepgram streaming API using Sec-WebSocket-Protocol for auth
+    const deepgramWs = new WebSocket(
       'wss://api.deepgram.com/v1/listen?' + new URLSearchParams({
         encoding: 'linear16',
         sample_rate: '24000',
@@ -175,10 +174,8 @@ async function initializeDeepgram(sessionId: string, clientSocket: WebSocket): P
         punctuate: 'true',
         endpointing: '300',
       }),
-      {
-        Authorization: `Token ${DEEPGRAM_API_KEY}`,
-      }
-    ) as any; // Cast to any to use as WebSocket
+      ['token', DEEPGRAM_API_KEY] // Pass API key via Sec-WebSocket-Protocol
+    );
 
     // Wait for connection to open
     const connectionPromise = new Promise<boolean>((resolve) => {
@@ -194,14 +191,14 @@ async function initializeDeepgram(sessionId: string, clientSocket: WebSocket): P
         resolve(true);
       };
 
-    deepgramWs.onerror = (error: any) => {
+    deepgramWs.onerror = (error) => {
       clearTimeout(timeout);
       console.error('[Deepgram] Connection error:', error);
       resolve(false);
     };
     });
 
-    deepgramWs.onmessage = async (event: any) => {
+    deepgramWs.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
         
