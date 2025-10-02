@@ -128,6 +128,24 @@ export default function Dashboard() {
       subtitle="Monitor your voice AI agent performance and customer interactions"
     >
       <Layout>
+        {/* Date Filter - Controls entire dashboard */}
+        <Layout.Section>
+          <Card>
+            <InlineStack align="space-between" blockAlign="center">
+              <Text as="h2" variant="headingMd">
+                Date Range
+              </Text>
+              <div style={{ width: '200px' }}>
+                <Select
+                  label=""
+                  options={dateFilterOptions}
+                  value={dateFilter}
+                  onChange={setDateFilter}
+                />
+              </div>
+            </InlineStack>
+          </Card>
+        </Layout.Section>
         {/* Setup Status Banner */}
         <Layout.Section>
           <Banner tone={statusBanner.tone} title={statusBanner.title}>
@@ -234,19 +252,9 @@ export default function Dashboard() {
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
-              <InlineStack align="space-between" blockAlign="center">
-                <Text as="h2" variant="headingLg">
-                  Call Volume & Sentiment
-                </Text>
-                <div style={{ width: '200px' }}>
-                  <Select
-                    label=""
-                    options={dateFilterOptions}
-                    value={dateFilter}
-                    onChange={setDateFilter}
-                  />
-                </div>
-              </InlineStack>
+              <Text as="h2" variant="headingLg">
+                Call Volume & Sentiment
+              </Text>
               
               <div style={{ height: '300px', width: '100%' }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -337,6 +345,7 @@ export default function Dashboard() {
           </Card>
         </Layout.Section>
       </Layout>
+      <div style={{ height: '40px' }} />
     </Page>
   );
 }
