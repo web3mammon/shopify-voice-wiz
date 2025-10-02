@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppProvider } from "@shopify/polaris";
 import "@shopify/polaris/build/esm/styles.css";
 import en from "@shopify/polaris/locales/en.json";
+import { Toaster } from "sonner";
 
 import ShopifyLayout from "./components/layout/ShopifyLayout";
 import Dashboard from "./pages/Dashboard";
@@ -32,6 +33,7 @@ const App = () => (
         </Routes>
       </ShopifyLayout>
     </BrowserRouter>
+    <Toaster position="top-right" richColors />
   </AppProvider>
 );
 

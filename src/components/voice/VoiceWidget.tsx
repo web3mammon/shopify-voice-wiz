@@ -1,53 +1,151 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { AudioRecorder, AudioPlayer, blobToBase64, base64ToBlob } from '@/utils/audioUtils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface VoiceWidgetProps {
   position?: 'bottom-left' | 'bottom-right';
   primaryColor?: string;
   greetingMessage?: string;
+  shopId?: string;
+}
+
+interface TranscriptMessage {
+  role: 'customer' | 'assistant' | 'system';
+  content: string;
+  timestamp?: string;
 }
 
 export default function VoiceWidget({
   position = 'bottom-right',
   primaryColor = '#008060',
   greetingMessage = "Hi! I'm your AI assistant. How can I help?",
+  shopId = 'demo-shop',
 }: VoiceWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [transcript, setTranscript] = useState<string[]>([]);
+  const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   
   const wsRef = useRef<WebSocket | null>(null);
+  const recorderRef = useRef<AudioRecorder | null>(null);
+  const playerRef = useRef<AudioPlayer | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
 
   const positionClasses = {
     'bottom-left': 'bottom-8 left-8',
     'bottom-right': 'bottom-8 right-8',
   };
 
+  useEffect(() => {
+    // Initialize audio player
+    playerRef.current = new AudioPlayer();
+    
+    return () => {
+      // Cleanup
+      if (recorderRef.current) {
+        recorderRef.current.stop();
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (playerRef.current) {
+        playerRef.current.stop();
+      }
+    };
+  }, []);
+
   const connectToVoiceWebSocket = async () => {
     setIsConnecting(true);
     setConnectionStatus('connecting');
 
     try {
-      // In production, this would connect to your Deno voice-websocket function
-      // For now, we'll simulate the connection
-      console.log('Connecting to voice WebSocket...');
+      // Get Supabase project URL from environment
+      const projectUrl = import.meta.env.VITE_SUPABASE_URL;
+      const projectId = projectUrl?.split('//')[1]?.split('.')[0];
       
-      // Simulate connection delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Connect to voice WebSocket
+      const wsUrl = `wss://${projectId}.supabase.co/functions/v1/voice-websocket?shop=${encodeURIComponent(shopId)}`;
       
-      setConnectionStatus('connected');
-      setIsConnecting(false);
-      setIsRecording(true);
+      console.log('Connecting to:', wsUrl);
       
-      // Add greeting message
-      setTranscript([greetingMessage]);
+      wsRef.current = new WebSocket(wsUrl);
 
-      // TODO: Implement actual WebSocket connection to your existing Deno backend
-      // wsRef.current = new WebSocket('wss://your-project.supabase.co/functions/v1/voice-websocket');
-      // wsRef.current.onmessage = handleWebSocketMessage;
-      // wsRef.current.onerror = handleWebSocketError;
-      
+      wsRef.current.onopen = async () => {
+        console.log('WebSocket connected');
+        setConnectionStatus('connected');
+        setIsConnecting(false);
+        
+        // Start recording audio
+        try {
+          recorderRef.current = new AudioRecorder(async (audioBlob) => {
+            // Send audio chunk to server
+            const base64Audio = await blobToBase64(audioBlob);
+            wsRef.current?.send(JSON.stringify({
+              type: 'audio_chunk',
+              audio: base64Audio,
+            }));
+          });
+          
+          await recorderRef.current.start();
+          setIsRecording(true);
+        } catch (error) {
+          console.error('Error starting recorder:', error);
+        }
+      };
+
+      wsRef.current.onmessage = async (event) => {
+        const data = JSON.parse(event.data);
+        console.log('Received:', data.type);
+
+        switch (data.type) {
+          case 'connection_established':
+            sessionIdRef.current = data.sessionId;
+            // Add greeting
+            setTranscript([{
+              role: 'system',
+              content: data.greeting || greetingMessage,
+              timestamp: new Date().toISOString(),
+            }]);
+            break;
+
+          case 'transcript_update':
+            setTranscript(prev => [
+              ...prev,
+              {
+                role: data.role === 'customer' ? 'customer' : 'assistant',
+                content: data.text,
+                timestamp: new Date().toISOString(),
+              }
+            ]);
+            break;
+
+          case 'audio_response':
+            // TODO: Receive and play TTS audio
+            console.log('Audio response:', data.text);
+            break;
+
+          case 'error':
+            console.error('Server error:', data.error);
+            break;
+        }
+      };
+
+      wsRef.current.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setConnectionStatus('disconnected');
+        setIsConnecting(false);
+      };
+
+      wsRef.current.onclose = () => {
+        console.log('WebSocket closed');
+        setConnectionStatus('disconnected');
+        if (recorderRef.current) {
+          recorderRef.current.stop();
+        }
+        setIsRecording(false);
+      };
+
     } catch (error) {
       console.error('Failed to connect:', error);
       setIsConnecting(false);
@@ -62,7 +160,11 @@ export default function VoiceWidget({
     } else {
       // Close connection
       if (wsRef.current) {
+        wsRef.current.send(JSON.stringify({ type: 'end_session' }));
         wsRef.current.close();
+      }
+      if (recorderRef.current) {
+        recorderRef.current.stop();
       }
       setIsOpen(false);
       setIsRecording(false);
@@ -72,9 +174,18 @@ export default function VoiceWidget({
   };
 
   const handleSendMessage = (message: string) => {
-    // In production: Send via WebSocket to your Deno backend
-    console.log('Sending message:', message);
-    setTranscript((prev) => [...prev, `You: ${message}`, 'AI: Processing...']);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'text_message',
+        text: message,
+      }));
+      
+      // Add to local transcript immediately
+      setTranscript((prev) => [
+        ...prev, 
+        { role: 'customer', content: message, timestamp: new Date().toISOString() }
+      ]);
+    }
   };
 
   return (
@@ -142,14 +253,17 @@ export default function VoiceWidget({
                   <div
                     key={index}
                     className={`p-3 rounded-lg ${
-                      message.startsWith('You:')
+                      message.role === 'customer'
                         ? 'bg-blue-100 ml-8'
-                        : message.startsWith('AI:')
+                        : message.role === 'assistant'
                         ? 'bg-gray-100 mr-8'
                         : 'bg-green-100'
                     }`}
                   >
-                    {message}
+                    <p className="text-sm font-semibold mb-1">
+                      {message.role === 'customer' ? 'You' : message.role === 'assistant' ? 'AI' : 'System'}:
+                    </p>
+                    <p>{message.content}</p>
                   </div>
                 ))
               )}
