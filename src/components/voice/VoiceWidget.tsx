@@ -113,25 +113,18 @@ export default function VoiceWidget({
               }
               break;
 
+            case 'text.response':
+              // Display GPT text response immediately
+              setTranscript(prev => [...prev, {
+                role: 'assistant',
+                content: data.text,
+                timestamp: new Date().toISOString()
+              }]);
+              break;
+
             case 'audio.response':
               if (playerRef.current && data.audio) {
                 await playerRef.current.addToQueue(data.audio);
-              }
-              
-              // Add assistant message to transcript on first chunk
-              if (!transcript.some(m => m.role === 'assistant' && !m.timestamp)) {
-                setTranscript(prev => {
-                  const lastMsg = prev[prev.length - 1];
-                  // Only add if last message wasn't from assistant
-                  if (lastMsg?.role !== 'assistant') {
-                    return [...prev, {
-                      role: 'assistant',
-                      content: '🎙️ Speaking...',
-                      timestamp: new Date().toISOString()
-                    }];
-                  }
-                  return prev;
-                });
               }
               break;
 
